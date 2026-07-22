@@ -377,7 +377,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setAnchor(a: AnchorMode) { anchor = a; reanchor() }
+    fun switchAnchor(a: AnchorMode) { anchor = a; reanchor() }
 
     fun setDecorMode(m: DecorMode) {
         decor = decor.copy(mode = m)

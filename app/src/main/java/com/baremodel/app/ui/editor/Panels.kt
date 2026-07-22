@@ -460,7 +460,7 @@ private fun DecorSection(vm: EditorViewModel) {
             AnchorMode.CORNER to R.string.anchor_corner,
             AnchorMode.FREE to R.string.anchor_free,
         ).forEach { (a, res) ->
-            Chip(stringResource(res), vm.anchor == a) { vm.setAnchor(a) }
+            Chip(stringResource(res), vm.anchor == a) { vm.switchAnchor(a) }
         }
     }
     Spacer(Modifier.height(12.dp))
