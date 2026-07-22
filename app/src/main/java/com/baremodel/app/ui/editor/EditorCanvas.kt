@@ -33,6 +33,7 @@ import com.baremodel.app.ui.theme.CanvasBg
 import com.baremodel.app.ui.theme.GroutC
 import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.AnchorMode
 import com.baremodel.core.LocalRect
 import com.baremodel.core.Pt
 import com.baremodel.core.TileClass
@@ -144,10 +145,14 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
 
         // 4. плитки
         val img = vm.tileImage
+        val decorImg = vm.decorImage
+        val decorSet = vm.decorIdx
         clipPath(roomPath) {
-            for (t in vm.layout.tiles) {
+            vm.layout.tiles.forEachIndexed { ti, t ->
                 val q = t.corners
-                if (img == null) {
+                val isDecor = ti in decorSet
+                val face = if (isDecor && decorImg != null) decorImg else img
+                if (face == null) {
                     val p = Path().apply {
                         moveTo(sx(q[0].x), sy(q[0].y))
                         lineTo(sx(q[1].x), sy(q[1].y))
@@ -155,7 +160,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                         lineTo(sx(q[3].x), sy(q[3].y))
                         close()
                     }
-                    drawPath(p, if (vm.variation) shadeOf(vm.tileColor, t.rect) else vm.tileColor)
+                    val base = if (isDecor) AccentTile else vm.tileColor
+                    drawPath(p, if (vm.variation && !isDecor) shadeOf(base, t.rect) else base)
                 } else {
                     val deg = vm.pattern.rotationDeg.toFloat()
                     val w = (t.rect.w * s).roundToInt() + 1
@@ -165,14 +171,14 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                             translate(sx(q[0].x), sy(q[0].y))
                             rotate(deg, Offset.Zero)
                         }) {
-                            drawImage(img, dstOffset = IntOffset.Zero, dstSize = IntSize(w, h))
+                            drawImage(face, dstOffset = IntOffset.Zero, dstSize = IntSize(w, h))
                         }
                     } else {
                         withTransform({
                             translate(sx(q[1].x), sy(q[1].y))
                             rotate(deg + 90f, Offset.Zero)
                         }) {
-                            drawImage(img, dstOffset = IntOffset.Zero, dstSize = IntSize(h, w))
+                            drawImage(face, dstOffset = IntOffset.Zero, dstSize = IntSize(h, w))
                         }
                     }
                 }
@@ -192,6 +198,17 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                     drawLine(Warn.copy(alpha = 0.9f), sp(q[0]), sp(q[2]), strokeWidth = 1.4f * d)
                 }
             }
+        }
+
+        // 4b. оси привязки раскладки
+        if (vm.anchor != AnchorMode.FREE) {
+            val c = vm.roomCenter()
+            val dashAx = PathEffect.dashPathEffect(floatArrayOf(4f * d, 5f * d), 0f)
+            val axis = Acc.copy(alpha = 0.4f)
+            drawLine(axis, Offset(sx(c.x), sy(pts.minOf { it.y })), Offset(sx(c.x), sy(pts.maxOf { it.y })),
+                strokeWidth = 1f * d, pathEffect = dashAx)
+            drawLine(axis, Offset(sx(pts.minOf { it.x }), sy(c.y)), Offset(sx(pts.maxOf { it.x }), sy(c.y)),
+                strokeWidth = 1f * d, pathEffect = dashAx)
         }
 
         // 5. контур комнаты
@@ -279,6 +296,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
         }
     }
 }
+
+private val AccentTile = Color(0xFFE8DFD2)
 
 /** Лёгкий разнотон плитки: детерминированный хеш по позиции в узоре. */
 private fun shadeOf(base: Color, rect: LocalRect): Color {

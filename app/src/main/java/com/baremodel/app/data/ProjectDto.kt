@@ -1,5 +1,7 @@
 package com.baremodel.app.data
 
+import com.baremodel.core.AnchorMode
+import com.baremodel.core.DecorSpec
 import com.baremodel.core.PatternSpec
 import com.baremodel.core.RoomSpec
 import com.baremodel.core.TileSpec
@@ -18,5 +20,7 @@ data class ProjectDto(
     val colorArgb: Int,
     val variation: Boolean = true,
     val reservePct: Int = 10,
+    val decor: DecorSpec = DecorSpec(),
+    val anchor: AnchorMode = AnchorMode.FREE,
     val savedAt: Long = 0L,
 )

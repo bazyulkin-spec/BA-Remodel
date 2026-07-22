@@ -23,7 +23,15 @@ import com.baremodel.app.R
 import com.baremodel.app.data.ProjectDto
 import com.baremodel.app.data.ProjectMeta
 import com.baremodel.app.data.ProjectRepository
+import com.baremodel.core.Aligner
+import com.baremodel.core.AnchorMode
+import com.baremodel.core.ArtRect
+import com.baremodel.core.CutAnalyzer
+import com.baremodel.core.CutReport
 import com.baremodel.core.Cutout
+import com.baremodel.core.DecorMode
+import com.baremodel.core.DecorPlanner
+import com.baremodel.core.DecorSpec
 import com.baremodel.core.LayoutResult
 import com.baremodel.core.LayoutSuggester
 import com.baremodel.core.PatternSpec
@@ -75,6 +83,15 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var tileImage by mutableStateOf<ImageBitmap?>(null)
         private set
 
+    var decor by mutableStateOf(DecorSpec())
+        private set
+
+    var anchor by mutableStateOf(AnchorMode.FREE)
+        private set
+
+    var decorImage by mutableStateOf<ImageBitmap?>(null)
+        private set
+
     var reservePct by mutableStateOf(10)
         private set
 
@@ -110,6 +127,23 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- производные ----------
 
     val layout: LayoutResult by derivedStateOf { TilingEngine.build(room, tile, pattern) }
+
+    /** Индексы декоративных плиток текущей раскладки. */
+    val decorIdx: Set<Int> by derivedStateOf {
+        DecorPlanner.select(layout, tile, decor, roomCenter())
+    }
+
+    /** Подрезка по каждой стене + предупреждения. */
+    val cutReport: CutReport by derivedStateOf { CutAnalyzer.analyze(room, tile, layout) }
+
+    fun roomCenter(): Pt {
+        val pts = room.points
+        if (pts.isEmpty()) return Pt(0.0, 0.0)
+        return Pt(
+            (pts.minOf { it.x } + pts.maxOf { it.x }) / 2,
+            (pts.minOf { it.y } + pts.maxOf { it.y }) / 2,
+        )
+    }
 
     val buyCount: Int get() = ceil(layout.totalCount * (1 + reservePct / 100.0)).toInt()
 
@@ -243,10 +277,13 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         when (drag) {
             Drag.PAN -> view = view.copy(offset = view.offset + d)
 
-            Drag.PATTERN -> pattern = pattern.copy(
+            Drag.PATTERN -> {
+                anchor = AnchorMode.FREE
+                pattern = pattern.copy(
                 offsetX = pattern.offsetX + d.x / view.scale,
-                offsetY = pattern.offsetY + d.y / view.scale,
-            )
+                    offsetY = pattern.offsetY + d.y / view.scale,
+                )
+            }
 
             Drag.VERTEX -> {
                 val pts = room.points.toMutableList()
@@ -321,15 +358,55 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- плитка и узор ----------
 
-    fun setTileWidth(mm: Double) { tile = tile.copy(widthMm = mm) }
+    fun setTileWidth(mm: Double) { tile = tile.copy(widthMm = mm); reanchor() }
 
-    fun setTileHeight(mm: Double) { tile = tile.copy(heightMm = mm) }
+    fun setTileHeight(mm: Double) { tile = tile.copy(heightMm = mm); reanchor() }
 
-    fun setGrout(mm: Double) { tile = tile.copy(groutMm = mm) }
+    fun setGrout(mm: Double) { tile = tile.copy(groutMm = mm); reanchor() }
 
-    fun setPatternType(t: PatternType) { pattern = pattern.copy(type = t); suggestions = null }
+    fun setPatternType(t: PatternType) { pattern = pattern.copy(type = t); suggestions = null; reanchor() }
 
-    fun setRotation(deg: Double) { pattern = pattern.copy(rotationDeg = deg) }
+    fun setRotation(deg: Double) { pattern = pattern.copy(rotationDeg = deg); reanchor() }
+
+    // ---------- декор и точка отсчёта ----------
+
+    /** Пересчитать смещение узора под выбранную точку отсчёта. */
+    fun reanchor() {
+        if (anchor != AnchorMode.FREE) {
+            pattern = Aligner.applyAnchor(pattern, room.points, tile, anchor, decor.art)
+        }
+    }
+
+    fun setAnchor(a: AnchorMode) { anchor = a; reanchor() }
+
+    fun setDecorMode(m: DecorMode) {
+        decor = decor.copy(mode = m)
+        if (m != DecorMode.NONE && anchor == AnchorMode.FREE) anchor = AnchorMode.ART_CENTER
+        reanchor()
+    }
+
+    fun setArt(a: ArtRect) {
+        decor = decor.copy(
+            art = ArtRect(
+                a.x.coerceIn(0.0, 0.9),
+                a.y.coerceIn(0.0, 0.9),
+                a.w.coerceIn(0.1, 1.0 - a.x.coerceIn(0.0, 0.9)),
+                a.h.coerceIn(0.1, 1.0 - a.y.coerceIn(0.0, 0.9)),
+            )
+        )
+        reanchor()
+    }
+
+    fun setPanel(cols: Int, rows: Int) { decor = decor.copy(panelCols = cols, panelRows = rows) }
+
+    fun loadDecorImage(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            val bmp = withContext(Dispatchers.IO) { decodeBitmap(context, uri) }
+            if (bmp != null) decorImage = bmp
+        }
+    }
+
+    fun clearDecorImage() { decorImage = null }
 
     fun resetShift() { pattern = pattern.copy(offsetX = 0.0, offsetY = 0.0) }
 
@@ -339,21 +416,21 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearImage() { tileImage = null }
 
+    private fun decodeBitmap(context: Context, uri: Uri): ImageBitmap? = runCatching {
+        if (Build.VERSION.SDK_INT >= 28) {
+            ImageDecoder.decodeBitmap(
+                ImageDecoder.createSource(context.contentResolver, uri)
+            ) { decoder, _, _ -> decoder.isMutableRequired = false }
+        } else {
+            @Suppress("DEPRECATION")
+            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        }
+    }.getOrNull()?.asImageBitmap()
+
     fun loadTileImage(context: Context, uri: Uri) {
         viewModelScope.launch {
-            val bmp = withContext(Dispatchers.IO) {
-                runCatching {
-                    if (Build.VERSION.SDK_INT >= 28) {
-                        ImageDecoder.decodeBitmap(
-                            ImageDecoder.createSource(context.contentResolver, uri)
-                        ) { decoder, _, _ -> decoder.isMutableRequired = false }
-                    } else {
-                        @Suppress("DEPRECATION")
-                        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                    }
-                }.getOrNull()
-            }
-            if (bmp != null) tileImage = bmp.asImageBitmap()
+            val bmp = withContext(Dispatchers.IO) { decodeBitmap(context, uri) }
+            if (bmp != null) tileImage = bmp
         }
     }
 
@@ -366,6 +443,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         )
         selection = null
         suggestions = null
+        reanchor()
         fit()
     }
 
@@ -379,6 +457,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         )
         selection = null
         suggestions = null
+        reanchor()
         fit()
     }
 
@@ -474,6 +553,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                         colorArgb = tileColor.toArgb(),
                         variation = variation,
                         reservePct = reservePct,
+                        decor = decor,
+                        anchor = anchor,
                         savedAt = System.currentTimeMillis(),
                     )
                 )
@@ -494,6 +575,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             tileImage = null
             variation = dto.variation
             reservePct = dto.reservePct
+            decor = dto.decor
+            anchor = dto.anchor
             projectName = dto.name
             selection = null
             suggestions = null

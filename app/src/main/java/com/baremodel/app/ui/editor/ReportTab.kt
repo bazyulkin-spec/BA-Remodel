@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,11 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -32,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import com.baremodel.app.R
 import com.baremodel.app.report.PdfReport
 import com.baremodel.app.ui.theme.Acc
+import com.baremodel.app.ui.theme.AccDeep
+import com.baremodel.app.ui.theme.BaIcons
 import com.baremodel.app.ui.theme.Acc2
 import com.baremodel.app.ui.theme.LineC
 import com.baremodel.app.ui.theme.Panel
@@ -153,7 +159,7 @@ fun ReportTab(vm: EditorViewModel) {
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(Acc)
+                .background(Brush.linearGradient(listOf(Acc, AccDeep)))
                 .clickable {
                     PdfReport.share(
                         context = context,
@@ -171,12 +177,16 @@ fun ReportTab(vm: EditorViewModel) {
                 .padding(vertical = 13.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "⬇ " + stringResource(R.string.share_pdf),
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(BaIcons.Share, null, Modifier.size(18.dp), tint = Color.White)
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    stringResource(R.string.share_pdf),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
         Text(
