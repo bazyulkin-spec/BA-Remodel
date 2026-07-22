@@ -116,8 +116,8 @@ private fun EditorTab(vm: EditorViewModel) {
                     .padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Chip(stringResource(R.string.mode_pattern), !vm.roomMode) { vm.setRoomMode(false) }
-                Chip(stringResource(R.string.mode_room), vm.roomMode) { vm.setRoomMode(true) }
+                Chip(stringResource(R.string.mode_pattern), !vm.roomMode) { vm.switchRoomMode(false) }
+                Chip(stringResource(R.string.mode_room), vm.roomMode) { vm.switchRoomMode(true) }
             }
 
             // слои

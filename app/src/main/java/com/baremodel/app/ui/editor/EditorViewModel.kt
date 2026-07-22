@@ -427,7 +427,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setReserve(p: Int) { reservePct = p }
 
-    fun setRoomMode(b: Boolean) { roomMode = b; if (!b) selection = null }
+    fun switchRoomMode(b: Boolean) { roomMode = b; if (!b) selection = null }
 
     fun toggleDims() { showDims = !showDims }
 

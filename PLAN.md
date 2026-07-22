@@ -48,6 +48,9 @@ BazForge v1.0 (проект переименован в BA-Remodel). Kotlin + Je
 - [x] Шаг 5 — ProjectRepository.kt, PdfReport.kt, ReportTab.kt, проектные методы VM реализованы
       (viewModelScope + IO, Toast). Проверка: 53 ссылки `vm.*` из UI найдены в VM,
       все ключи строк есть в EN и RU, зависимости не менялись
+- [!] Сборка #3 в GitHub Actions: `:core:test` — зелёный, `:app` упал на одной ошибке
+      (`fun setRoomMode` конфликтовал с сеттером свойства `roomMode`). Метод переименован
+      в `switchRoomMode`; больше JVM-коллизий свойств и функций в модуле нет (проверено скриптом)
 - [x] Шаг 6 — README.md, wrapper на месте, движок перепроверен (ALL CHECKS PASSED), финальный zip.
       Осталось: сборка и ручной чек-лист §10 на устройстве пользователя
 
@@ -161,7 +164,7 @@ applyRect(wM, hM)   applyLShape()  // [(0,0),(4,0),(4,1.8),(2.2,1.8),(2.2,3),(0,
 addCutout()          // 0.8×0.8 в центроиде комнаты, включает roomMode, selection=Cut
 deleteSelectedVertex()  // только если points.size>3
 deleteSelectedCutout()  setSelectedCutW(m)  setSelectedCutH(m)
-setReserve(p)  setRoomMode(b)  toggleDims()  toggleCuts()
+setReserve(p)  switchRoomMode(b)  toggleDims()  toggleCuts()
 runSuggest()   // viewModelScope+Default → suggestions
 applySuggestion(s)  // pattern = pattern.copy(type=s.type, rotationDeg=s.rotationDeg); suggestions=null
 refreshProjects()  saveProject()  loadProject(name)  deleteProject(name)
