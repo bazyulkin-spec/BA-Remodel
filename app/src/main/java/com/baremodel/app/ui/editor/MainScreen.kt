@@ -179,10 +179,8 @@ private fun EditorTab(vm: EditorViewModel) {
                 Icon(BaIcons.Fit, null, Modifier.size(21.dp), tint = Color.White)
             }
 
-            AnimatedVisibility(
+            Fade(
                 visible = vm.layout.overLimit,
-                enter = fadeIn(),
-                exit = fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp),
             ) {
                 Text(
@@ -197,10 +195,8 @@ private fun EditorTab(vm: EditorViewModel) {
                 )
             }
 
-            AnimatedVisibility(
+            Fade(
                 visible = vm.hintVisible && !vm.layout.overLimit,
-                enter = fadeIn(),
-                exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp, start = 16.dp, end = 80.dp),
             ) {
                 Text(
@@ -233,6 +229,26 @@ private fun EditorTab(vm: EditorViewModel) {
             StatsRow(vm)
             PanelHost(vm)
         }
+    }
+}
+
+/**
+ * Обёртка над AnimatedVisibility: вызывается вне ColumnScope/RowScope,
+ * поэтому выбирается обычная перегрузка, а не scope-расширение.
+ */
+@Composable
+private fun Fade(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        content()
     }
 }
 
