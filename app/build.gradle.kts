@@ -11,10 +11,19 @@ android {
 
     defaultConfig {
         applicationId = "com.baremodel.app"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            // v1 нужна старым эмуляторам и сторонним установщикам, v2/v3 — современным Android
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
