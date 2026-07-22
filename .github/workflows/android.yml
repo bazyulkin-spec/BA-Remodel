@@ -4,11 +4,30 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Unpack sources from zip (if uploaded)
+        run: |
+          set -e
+          zip=$(ls -1 *.zip 2>/dev/null | head -n 1 || true)
+          if [ -n "$zip" ]; then
+            echo "Найден архив: $zip"
+            mkdir -p _src && unzip -q -o "$zip" -d _src
+            root=$(dirname "$(find _src -name settings.gradle.kts | head -n 1)")
+            echo "Корень проекта в архиве: $root"
+            cp -r "$root"/. .
+            rm -rf _src "$zip"
+          fi
+          test -f settings.gradle.kts || { echo "ОШИБКА: settings.gradle.kts не найден"; exit 1; }
+          test -f gradle/libs.versions.toml || { echo "ОШИБКА: нет gradle/libs.versions.toml"; exit 1; }
+          ls -la
 
       - uses: actions/setup-java@v4
         with:
@@ -22,11 +41,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --stacktrace
 
       - name: Upload APK
         if: always()
@@ -48,3 +66,14 @@ jobs:
           name: core-test-report
           path: core/build/reports/tests/test
           if-no-files-found: ignore
+
+      - name: Commit unpacked sources
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout HEAD -- .github/workflows 2>/dev/null || true
+          git add -A
+          git diff --cached --quiet || git commit -m "Unpack project sources [skip ci]"
+          git push || true
