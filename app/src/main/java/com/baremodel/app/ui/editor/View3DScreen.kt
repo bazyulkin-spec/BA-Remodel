@@ -519,6 +519,41 @@ fun View3DScreen(vm: EditorViewModel) {
                                 .copy(alpha = if (isInternal2 || wallsGhost) 0.40f else 1f),
                             LineC,
                         )
+                        // проёмы этой стены — видны и у неактивных комнат,
+                        // цвет по типу, как у активной
+                        if (!lowWalls && !wallsGhost) {
+                            val oid = "wall-" + (i2 + 1)
+                            val wOpen = r.openings[oid] ?: emptyList()
+                            if (wOpen.isNotEmpty()) {
+                                val kinds2 = r.openingKinds[oid] ?: emptyList()
+                                val ux2 = (bx - ax) / len
+                                val uz2 = (bz - az) / len
+                                wOpen.forEachIndexed { oi2, o ->
+                                    val k2 = kinds2.getOrNull(oi2)
+                                        ?: if (o.y < 0.05) OPENING_DOOR else OPENING_WINDOW
+                                    val ox0 = o.x.toFloat()
+                                    val ox1 = (o.x + o.w).toFloat()
+                                    val oy0 = o.y.toFloat()
+                                    val oy1 = (o.y + o.h).toFloat()
+                                    val glass2 = k2 == OPENING_WINDOW || k2 == OPENING_BALCONY
+                                    addFace(
+                                        listOf(
+                                            V3(ax + ux2 * ox0 + nx * 0.008f, oy0, az + uz2 * ox0 + nz * 0.008f),
+                                            V3(ax + ux2 * ox1 + nx * 0.008f, oy0, az + uz2 * ox1 + nz * 0.008f),
+                                            V3(ax + ux2 * ox1 + nx * 0.008f, oy1, az + uz2 * ox1 + nz * 0.008f),
+                                            V3(ax + ux2 * ox0 + nx * 0.008f, oy1, az + uz2 * ox0 + nz * 0.008f),
+                                        ),
+                                        if (glass2) Color(0xFF13202F) else Color(0xFF0A0E15),
+                                        when (k2) {
+                                            OPENING_WINDOW -> Acc.copy(alpha = 0.55f)
+                                            OPENING_ENTRY -> Good.copy(alpha = 0.65f)
+                                            OPENING_PASSAGE -> Sub.copy(alpha = 0.5f)
+                                            else -> Acc2.copy(alpha = 0.55f)
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -315,6 +315,7 @@ fun PanelHost(vm: EditorViewModel, maxContentHeight: Dp = 300.dp) {
         R.string.grp_tile to listOf(0 to R.string.sec_tile, 1 to R.string.sec_pattern),
         R.string.grp_furnish to listOf(3 to R.string.sec_furn),
         R.string.grp_calc to listOf(
+            10 to R.string.sec_works,
             5 to R.string.sec_calc, 6 to R.string.sec_offcuts,
             7 to R.string.sec_estimate, 8 to R.string.sec_tips,
         ),
@@ -378,6 +379,7 @@ fun PanelHost(vm: EditorViewModel, maxContentHeight: Dp = 300.dp) {
                 6 -> OffcutsSection(vm)
                 7 -> EstimateSection(vm)
                 8 -> TipsSection(vm)
+                10 -> WorksSection(vm)
                 else -> ProjectSection(vm)
             }
             }
@@ -387,6 +389,56 @@ fun PanelHost(vm: EditorViewModel, maxContentHeight: Dp = 300.dp) {
 }
 
 // ---------- секции ----------
+
+/**
+ * Раскрывающийся блок настроек: свёрнут — заголовок с кратким значением,
+ * тап — открылся. Состояние живёт во ViewModel и переживает смену секций.
+ */
+@Composable
+private fun Fold(
+    vm: EditorViewModel,
+    key: String,
+    title: String,
+    subtitle: String? = null,
+    default: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val open = vm.foldOpen(key, default)
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(9.dp))
+                .clickable { vm.toggleFold(key, default) }
+                .padding(vertical = 7.dp, horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    if (open) "▾" else "▸",
+                    color = if (open) Acc else Dim,
+                    fontSize = 11.sp,
+                )
+                Text(
+                    title,
+                    color = if (open) Txt else Sub,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (!open && subtitle != null) {
+                Text(subtitle, color = Dim, fontSize = 11.sp, maxLines = 1)
+            }
+        }
+        Fade(visible = open) {
+            Column(Modifier.fillMaxWidth().padding(top = 4.dp)) { content() }
+        }
+    }
+}
 
 @Composable
 private fun PatternSection(vm: EditorViewModel) {
@@ -444,6 +496,12 @@ private val PALETTE = listOf(
 @Composable
 private fun TileSection(vm: EditorViewModel) {
     val context = LocalContext.current
+    Fold(
+        vm, "tile.size", stringResource(R.string.fold_size),
+        vm.uiTile.widthMm.toInt().toString() + "×" + vm.uiTile.heightMm.toInt() +
+            " · " + vm.uiTile.groutMm.toInt() + " " + stringResource(R.string.unit_mm),
+        default = true,
+    ) {
     if (vm.favTiles.isNotEmpty()) {
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
@@ -458,9 +516,6 @@ private fun TileSection(vm: EditorViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-    }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.loadTileImage(context, uri)
     }
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
@@ -490,7 +545,8 @@ private fun TileSection(vm: EditorViewModel) {
             vm.setGrout(it)
         }
     }
-    Spacer(Modifier.height(10.dp))
+    }
+    Fold(vm, "tile.color", stringResource(R.string.fold_color)) {
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -585,7 +641,11 @@ private fun TileSection(vm: EditorViewModel) {
         Text(stringResource(R.string.zone_note), color = Sub, fontSize = 10.5.sp)
     }
 
-    Spacer(Modifier.height(10.dp))
+    }
+    Fold(vm, "tile.look", stringResource(R.string.fold_look)) {
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.loadTileImage(context, uri)
+    }
     var artDialog by remember { mutableStateOf(false) }
     Box(
         Modifier
@@ -652,8 +712,10 @@ private fun TileSection(vm: EditorViewModel) {
             Chip(stringResource(R.string.clear)) { vm.clearImage() }
         }
     }
-
-    DecorSection(vm)
+    }
+    Fold(vm, "tile.decor", stringResource(R.string.fold_decor)) {
+        DecorSection(vm)
+    }
 }
 
 @Composable
@@ -854,8 +916,7 @@ private fun RoomSection(vm: EditorViewModel) {
     val planPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.loadPlanImage(context, uri)
     }
-    Text(stringResource(R.string.plan_under), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(8.dp))
+    Fold(vm, "room.under", stringResource(R.string.plan_under)) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         IconChip(BaIcons.Camera, stringResource(R.string.plan_photo), vm.planImage != null) {
             planPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -899,6 +960,7 @@ private fun RoomSection(vm: EditorViewModel) {
         fontSize = 10.5.sp,
     )
 
+    }
     Spacer(Modifier.height(14.dp))
     Text(stringResource(R.string.wall_thick), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(8.dp))
@@ -918,7 +980,7 @@ private fun RoomSection(vm: EditorViewModel) {
             Chip(stringResource(R.string.simplify)) { vm.simplifyRoom() }
         }
     }
-    Spacer(Modifier.height(14.dp))
+    Fold(vm, "room.templates", stringResource(R.string.fold_templates)) {
     var w by rememberSaveable { mutableStateOf(4.0) }
     var h by rememberSaveable { mutableStateOf(3.0) }
     Text(stringResource(R.string.rect), color = Sub, fontSize = 11.5.sp)
@@ -934,6 +996,7 @@ private fun RoomSection(vm: EditorViewModel) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Chip(stringResource(R.string.lshape)) { vm.applyLShape() }
         IconChip(BaIcons.Plus, stringResource(R.string.add_cutout)) { vm.addCutout() }
+    }
     }
     val sel = vm.selection
     if (sel is Selection.Vertex && vm.room.points.size > 3) {
@@ -1231,7 +1294,7 @@ private fun SurfacesSection(vm: EditorViewModel) {
     val finish = vm.finishOf(active)
     val area = vm.surfaceAreaM2(active)
 
-    Spacer(Modifier.height(12.dp))
+    Fold(vm, "surf.finish", stringResource(R.string.fold_finish), default = true) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf(
             Finish.TILE to R.string.finish_tile,
@@ -1290,10 +1353,12 @@ private fun SurfacesSection(vm: EditorViewModel) {
         Finish.NONE -> Unit
     }
 
+    }
     if (surface.kind == SurfaceKind.WALL) {
-        Spacer(Modifier.height(14.dp))
-        Text(stringResource(R.string.openings), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
+        Fold(
+            vm, "surf.openings", stringResource(R.string.openings),
+            vm.openingsOf(active).size.toString(),
+        ) {
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1390,11 +1455,10 @@ private fun SurfacesSection(vm: EditorViewModel) {
                 }
             }
         }
+        }
     }
 
-    Spacer(Modifier.height(16.dp))
-    Text(stringResource(R.string.total_materials), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(8.dp))
+    Fold(vm, "surf.totals", stringResource(R.string.total_materials)) {
     var tilesTotal = 0
     var rollsTotal = 0
     var litersTotal = 0.0
@@ -1420,6 +1484,7 @@ private fun SurfacesSection(vm: EditorViewModel) {
         stringResource(R.string.liters),
         String.format(Locale.getDefault(), "%.1f", litersTotal),
     )
+    }
 }
 
 @Composable
@@ -1456,14 +1521,11 @@ private fun CalcSection(vm: EditorViewModel) {
     Line(stringResource(R.string.need_grout), String.format(Locale.getDefault(), "%.1f", groutKg) + " " + stringResource(R.string.unit_kg))
 
     // ---------- плинтус: сегменты, распил по хлыстам, советы по остаткам ----------
-    Spacer(Modifier.height(12.dp))
-    Text(
-        stringResource(R.string.need_plinth),
-        color = Dim,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.SemiBold,
-    )
-    Spacer(Modifier.height(7.dp))
+    Fold(
+        vm, "calc.skirt", stringResource(R.string.need_plinth),
+        String.format(Locale.getDefault(), "%.1f", vm.skirtPlan.totalM) + " " +
+            stringResource(R.string.unit_m),
+    ) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Chip(stringResource(R.string.skirt_bars_mode), vm.skirtMode == 0) { vm.switchSkirtMode(0) }
         Chip(stringResource(R.string.skirt_tiles_mode), vm.skirtMode == 1) { vm.switchSkirtMode(1) }
@@ -1577,9 +1639,8 @@ private fun CalcSection(vm: EditorViewModel) {
             fontWeight = FontWeight.Bold,
         )
     }
-    Spacer(Modifier.height(14.dp))
-    Text(stringResource(R.string.cuts_by_walls), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(6.dp))
+    }
+    Fold(vm, "calc.walls", stringResource(R.string.cuts_by_walls)) {
     val rep = vm.cutReport
     rep.edges.forEach { e ->
         Line(
@@ -1615,6 +1676,7 @@ private fun CalcSection(vm: EditorViewModel) {
         )
     }
 
+    }
     Spacer(Modifier.height(10.dp))
     Text(stringResource(R.string.disclaimer), color = Sub, fontSize = 10.5.sp)
 }
@@ -1639,6 +1701,63 @@ fun finishTitle(f: Finish): String = stringResource(
         Finish.NONE -> R.string.finish_none
     },
 )
+
+@Composable
+private fun WorksSection(vm: EditorViewModel) {
+    val rows = vm.worksList()
+    if (rows.isEmpty()) {
+        Text(stringResource(R.string.works_empty), color = Sub, fontSize = 11.5.sp)
+        return
+    }
+    val done = rows.count { vm.workStatusOf(it.key) == 2 }
+    Line(
+        stringResource(R.string.works_progress),
+        "$done / ${rows.size}",
+        if (done == rows.size) Good else Txt,
+    )
+    val statusLabels = listOf(
+        stringResource(R.string.work_plan),
+        stringResource(R.string.work_doing),
+        stringResource(R.string.work_done),
+    )
+    rows.forEach { rw ->
+        val st = vm.workStatusOf(rw.key)
+        Column(Modifier.fillMaxWidth().padding(top = 9.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    rw.title,
+                    color = if (st == 2) Sub else Txt,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                val tone = when (st) {
+                    2 -> Good
+                    1 -> Acc2
+                    else -> Dim
+                }
+                Text(
+                    statusLabels[st],
+                    color = tone,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, tone.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .clickable { vm.cycleWorkStatus(rw.key) }
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                )
+            }
+            Text(rw.detail, color = Sub, fontSize = 11.sp)
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(stringResource(R.string.works_hint), color = Sub, fontSize = 10.5.sp)
+}
 
 @Composable
 private fun EstimateSection(vm: EditorViewModel) {

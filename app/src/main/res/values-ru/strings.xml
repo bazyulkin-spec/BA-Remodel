@@ -357,4 +357,22 @@
     <string name="pair_saving">Экономия</string>
     <string name="pair_show">Пары…</string>
     <string name="thresholds_lbl">Пороги</string>
+    <string name="fold_size">Размер и шов</string>
+    <string name="fold_color">Цвет, раскраска, зоны</string>
+    <string name="fold_look">Вид плитки и фото</string>
+    <string name="fold_decor">Декор и панно</string>
+    <string name="fold_finish">Отделка</string>
+    <string name="fold_templates">Шаблоны формы</string>
+    <string name="place_opening_hint">Тапни по стене — проём встанет в место касания</string>
+    <string name="sec_works">Работы</string>
+    <string name="work_floor">Пол — плитка</string>
+    <string name="work_ceiling">Потолок — краска</string>
+    <string name="work_plan">план</string>
+    <string name="work_doing">в работе</string>
+    <string name="work_done">готово</string>
+    <string name="works_progress">Готово</string>
+    <string name="works_empty">Добавь комнаты и отделку — чек-лист соберётся сам.</string>
+    <string name="works_hint">Тап по статусу переключает: план → в работе → готово. Сохраняется с проектом.</string>
+    <string name="liters_short">л</string>
+    <string name="rolls_short">рул.</string>
 </resources>

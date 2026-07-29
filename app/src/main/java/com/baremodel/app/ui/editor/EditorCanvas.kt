@@ -56,6 +56,10 @@ import kotlin.math.sin
 @Composable
 fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
     val unitM = stringResource(R.string.unit_m)
+    val kindShort = listOf(
+        R.string.kind_window, R.string.kind_door, R.string.kind_balcony,
+        R.string.kind_entry, R.string.kind_passage,
+    ).map { stringResource(it).firstOrNull()?.uppercase() ?: "?" }
     val wmText = stringResource(R.string.wm_brand)
     val inactiveLayouts = remember(vm.rooms, vm.activeRoom) {
         vm.rooms.mapIndexed { i, r ->
@@ -847,6 +851,83 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                             Offset(sx(p0.x - nx * r), sy(p0.y - ny * r)),
                             strokeWidth = if (kind == OPENING_ENTRY) 2.2f * d else 1.6f * d,
                         )
+                    }
+                }
+            }
+        }
+
+        // 6m. метки проёмов: цветной кружок с буквой снаружи стены и указатель
+        // на сам проём — «квартирку сверху» видно с одного взгляда при любом зуме
+        run {
+            val ptsM = vm.room.points
+            if (ptsM.size >= 3) {
+                for (i in ptsM.indices) {
+                    val listO = vm.openingsOf("wall-" + (i + 1))
+                    if (listO.isEmpty()) continue
+                    val kindsM = vm.openingKindsOf("wall-" + (i + 1))
+                    val a = ptsM[i]
+                    val b = ptsM[(i + 1) % ptsM.size]
+                    val ex = b.x - a.x
+                    val ey = b.y - a.y
+                    val len = kotlin.math.sqrt(ex * ex + ey * ey)
+                    if (len < 1e-6) continue
+                    val ux = ex / len
+                    val uy = ey / len
+                    var nx = ey / len
+                    var ny = -ex / len
+                    val midW = Pt(a.x + ex / 2, a.y + ey / 2)
+                    if (pointInPolygon(Pt(midW.x + nx * 0.03, midW.y + ny * 0.03), ptsM)) {
+                        nx = -nx
+                        ny = -ny
+                    }
+                    val th = vm.wallThicknessOf("wall-" + (i + 1))
+                    listO.forEachIndexed { oi, o ->
+                        val kind = kindsM.getOrNull(oi) ?: OPENING_WINDOW
+                        val tone = when (kind) {
+                            OPENING_WINDOW -> Acc
+                            OPENING_ENTRY -> Good
+                            OPENING_PASSAGE -> Sub
+                            else -> Acc2
+                        }
+                        val cxW = a.x + ux * (o.x + o.w / 2)
+                        val cyW = a.y + uy * (o.x + o.w / 2)
+                        // точка на наружной грани стены и центр кружка на отлёте
+                        val gx = sx(cxW + nx * th)
+                        val gy = sy(cyW + ny * th)
+                        // экранное направление наружу (масштаб по осям одинаковый)
+                        val dxs = sx(cxW + nx) - sx(cxW)
+                        val dys = sy(cyW + ny) - sy(cyW)
+                        val dl = kotlin.math.sqrt(dxs * dxs + dys * dys)
+                        if (dl < 1e-3) return@forEachIndexed
+                        val ndx = dxs / dl
+                        val ndy = dys / dl
+                        val bx = gx + ndx * 17f * d
+                        val by = gy + ndy * 17f * d
+                        drawLine(
+                            tone.copy(alpha = 0.85f),
+                            Offset(gx, gy),
+                            Offset(bx, by),
+                            strokeWidth = 1.6f * d,
+                        )
+                        drawCircle(tone, radius = 9f * d, center = Offset(bx, by))
+                        drawCircle(
+                            Color(0xFF0B1220),
+                            radius = 9f * d,
+                            center = Offset(bx, by),
+                            style = Stroke(1.2f * d),
+                        )
+                        drawIntoCanvas { canvas ->
+                            val tp = android.graphics.Paint(labelPaint)
+                            tp.textSize = 9.5f * d
+                            tp.color = android.graphics.Color.rgb(11, 18, 32)
+                            tp.isFakeBoldText = true
+                            canvas.nativeCanvas.drawText(
+                                kindShort.getOrElse(kind) { "?" },
+                                bx,
+                                by + 3.4f * d,
+                                tp,
+                            )
+                        }
                     }
                 }
             }

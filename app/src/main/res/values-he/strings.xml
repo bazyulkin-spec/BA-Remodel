@@ -357,4 +357,22 @@
     <string name="pair_saving">חיסכון</string>
     <string name="pair_show">זוגות…</string>
     <string name="thresholds_lbl">ספים</string>
+    <string name="fold_size">מידה ופוגה</string>
+    <string name="fold_color">צבע, צביעה, אזורים</string>
+    <string name="fold_look">מראה האריח ותמונה</string>
+    <string name="fold_decor">דקור ופאנל</string>
+    <string name="fold_finish">גימור</string>
+    <string name="fold_templates">תבניות צורה</string>
+    <string name="place_opening_hint">הקש על קיר — הפתח יונח בנקודת המגע</string>
+    <string name="sec_works">עבודות</string>
+    <string name="work_floor">רצפה — אריחים</string>
+    <string name="work_ceiling">תקרה — צבע</string>
+    <string name="work_plan">תוכנית</string>
+    <string name="work_doing">בעבודה</string>
+    <string name="work_done">בוצע</string>
+    <string name="works_progress">בוצע</string>
+    <string name="works_empty">הוסף חדרים וגימורים — הרשימה תיבנה לבד.</string>
+    <string name="works_hint">הקשה על סטטוס מחליפה: תוכנית → בעבודה → בוצע. נשמר עם הפרויקט.</string>
+    <string name="liters_short">ל׳</string>
+    <string name="rolls_short">גלילים</string>
 </resources>

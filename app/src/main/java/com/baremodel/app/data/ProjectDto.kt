@@ -89,6 +89,7 @@ data class ProjectDto(
     val skirtBarLenM: Double = 2.5,
     val skirtHeightMm: Double = 80.0,
     val pairCuts: Boolean = true,
+    val workStatus: Map<String, Int> = emptyMap(),
     val rooms: List<RoomDto> = emptyList(),
     val activeRoom: Int = 0,
     val savedAt: Long = 0L,

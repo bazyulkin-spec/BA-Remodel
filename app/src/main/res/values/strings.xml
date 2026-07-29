@@ -357,4 +357,22 @@
     <string name="pair_saving">Saving</string>
     <string name="pair_show">Pairs…</string>
     <string name="thresholds_lbl">Thresholds</string>
+    <string name="fold_size">Size &amp; grout</string>
+    <string name="fold_color">Color, paint, zones</string>
+    <string name="fold_look">Tile look &amp; photo</string>
+    <string name="fold_decor">Decor &amp; panel</string>
+    <string name="fold_finish">Finish</string>
+    <string name="fold_templates">Shape templates</string>
+    <string name="place_opening_hint">Tap a wall — the opening lands where you tap</string>
+    <string name="sec_works">Works</string>
+    <string name="work_floor">Floor — tile</string>
+    <string name="work_ceiling">Ceiling — paint</string>
+    <string name="work_plan">plan</string>
+    <string name="work_doing">doing</string>
+    <string name="work_done">done</string>
+    <string name="works_progress">Done</string>
+    <string name="works_empty">Add rooms and finishes — the checklist builds itself.</string>
+    <string name="works_hint">Tap a status to cycle: plan → doing → done. Saved with the project.</string>
+    <string name="liters_short">L</string>
+    <string name="rolls_short">rolls</string>
 </resources>

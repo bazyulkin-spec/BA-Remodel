@@ -482,6 +482,47 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                 }
             }
 
+            // режим «Комната»: проёмы ставятся в два касания — тип, затем стена
+            Fade(
+                visible = vm.roomMode && !vm.drawMode && vm.selection == null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 68.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth(0.96f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            OPENING_DOOR to R.string.opening_door,
+                            OPENING_WINDOW to R.string.opening_window,
+                            OPENING_BALCONY to R.string.opening_balcony,
+                            OPENING_ENTRY to R.string.opening_entry,
+                            OPENING_PASSAGE to R.string.opening_passage,
+                        ).forEach { (kind, res) ->
+                            Chip(
+                                stringResource(res),
+                                selected = vm.placeOpeningKind == kind,
+                            ) { vm.armPlaceOpening(kind) }
+                        }
+                    }
+                    if (vm.placeOpeningKind >= 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.place_opening_hint),
+                            color = Acc2,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(Panel2.copy(alpha = 0.92f))
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                }
+            }
+
             val sel = vm.selection
             Fade(
                 visible = sel != null,
@@ -825,7 +866,8 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clickable { vm.toggleWarnEdge(tw.edgeIndex) },
                         )
-                        if (vm.pattern.rotationDeg == 0.0) {
+                        val rotFix = ((vm.pattern.rotationDeg % 90.0) + 90.0) % 90.0
+                        if (rotFix < 0.01 || rotFix > 89.99) {
                             Chip(stringResource(R.string.warn_fix)) { vm.fixThinEdge(tw.edgeIndex) }
                         }
                     }
@@ -891,7 +933,7 @@ private fun WatermarkOverlay() {
 }
 
 @Composable
-private fun Fade(
+internal fun Fade(
     visible: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
