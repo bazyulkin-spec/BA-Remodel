@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BA-Remodel — генератор кодов</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ background:#07090D;color:#EEF2F8;font-family:"Inter","Segoe UI",system-ui,sans-serif}
+.card{width:min(92vw,430px);background:#0E1117;border:1px solid rgba(255,255,255,.09);
+ border-radius:22px;padding:26px}
+h1{margin:0 0 4px;font-size:19px}
+p{margin:0 0 16px;font-size:12.5px;color:#8A97AC;line-height:1.5}
+label{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:#5C6980}
+input{width:100%;box-sizing:border-box;margin:7px 0 16px;background:#141922;
+ border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:13px 14px;
+ color:#EEF2F8;font:600 15px/1 inherit;outline:none}
+input:focus{border-color:#5B92FF}
+.code{display:flex;align-items:center;justify-content:space-between;gap:12px;
+ background:linear-gradient(160deg,rgba(91,146,255,.2),rgba(91,146,255,.06));
+ border:1px solid rgba(91,146,255,.4);border-radius:14px;padding:16px}
+.code b{font-size:26px;letter-spacing:2px}
+button{border:0;border-radius:11px;padding:11px 15px;font:700 12.5px/1 inherit;
+ color:#CFE0FF;background:rgba(91,146,255,.16);border:1px solid rgba(91,146,255,.4);cursor:pointer}
+.note{margin-top:14px;font-size:11px;color:#5C6980;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Генератор кодов BA-Remodel</h1>
+  <p>Донатер прислал 50 ₪ и написал с какой почты. Введи её — получишь код,
+     который в приложении («Pro» → «У меня есть код») отключает водяные знаки.
+     Код подходит только к этой почте.</p>
+  <label>Почта донатера</label>
+  <input id="mail" type="email" placeholder="name@example.com" autofocus>
+  <div class="code"><b id="code">—</b><button id="copy">Копировать</button></div>
+  <div class="note">Работает офлайн, ничего никуда не отправляет. Алгоритм совпадает
+     с зашитым в приложение; если поменяешь его там — поменяй и здесь.</div>
+</div>
+<script>
+function expected(email){
+  const src = email.trim().toLowerCase() + "|ba-remodel-50";
+  let h = 0;
+  for (const ch of src) h = (h * 31 + ch.codePointAt(0)) % 1000003;
+  return "BA-" + (h % 1679616).toString(36).toUpperCase().padStart(4, "0");
+}
+const mail=document.getElementById('mail'), code=document.getElementById('code');
+mail.addEventListener('input',()=>{ code.textContent = mail.value.trim() ? expected(mail.value) : "—"; });
+document.getElementById('copy').onclick=()=>{ if(code.textContent!=="—") navigator.clipboard.writeText(code.textContent); };
+</script>
+</body>
+</html>

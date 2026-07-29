@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Правила для Android 12+: облачная копия и перенос на новое устройство. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="ba_trial.xml" />
+        <include domain="file" path="trial.dat" />
+        <include domain="file" path="logo.png" />
+        <include domain="file" path="projects/" />
+        <exclude domain="file" path="reports/" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="ba_trial.xml" />
+        <include domain="file" path="trial.dat" />
+        <include domain="file" path="logo.png" />
+        <include domain="file" path="projects/" />
+    </device-transfer>
+</data-extraction-rules>

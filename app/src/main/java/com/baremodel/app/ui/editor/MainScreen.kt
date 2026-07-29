@@ -2,20 +2,32 @@ package com.baremodel.app.ui.editor
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -23,25 +35,36 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,6 +76,7 @@ import com.baremodel.app.ui.theme.AccSoft
 import com.baremodel.app.ui.theme.BaIcons
 import com.baremodel.app.ui.theme.Bg
 import com.baremodel.app.ui.theme.Dim
+import com.baremodel.app.ui.theme.Line2
 import com.baremodel.app.ui.theme.LineC
 import com.baremodel.app.ui.theme.Panel
 import com.baremodel.app.ui.theme.Panel2
@@ -60,7 +84,12 @@ import com.baremodel.app.ui.theme.Panel3
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Txt
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.CutPieceInfo
+import com.baremodel.core.DecorMode
+import com.baremodel.core.Pt
+import com.baremodel.core.TileClass
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun MainScreen(vm: EditorViewModel = viewModel()) {
@@ -78,9 +107,15 @@ fun MainScreen(vm: EditorViewModel = viewModel()) {
             Crossfade(targetState = tab, label = "tab") { t ->
                 when (t) {
                     0 -> EditorTab(vm)
-                    1 -> ReportTab(vm)
+                    1 -> View3DScreen(vm)
+                    2 -> PhotoFitScreen(vm)
+                    3 -> ReportTab(vm)
                     else -> ProScreen()
                 }
+            }
+            // авторский знак поверх всей работы: бледно, но на каждом экране
+            if (Entitlements.watermark && tab != 4) {
+                WatermarkOverlay()
             }
         }
         BottomNav(tab) { tab = it }
@@ -92,8 +127,8 @@ private fun TopBar(vm: EditorViewModel, tab: Int) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(Panel)
-            .padding(horizontal = 15.dp, vertical = 11.dp),
+            .background(Brush.verticalGradient(listOf(Panel3.copy(alpha = 0.9f), Panel)))
+            .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -108,13 +143,23 @@ private fun TopBar(vm: EditorViewModel, tab: Int) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.app_name), color = Txt, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.app_name),
+                    color = Txt,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     "BETA",
                     color = Acc,
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(AccSoft)
@@ -127,6 +172,8 @@ private fun TopBar(vm: EditorViewModel, tab: Int) {
             IconToggle(BaIcons.Ruler, vm.showDims) { vm.toggleDims() }
             Spacer(Modifier.width(8.dp))
             IconToggle(BaIcons.Scissors, vm.showCuts) { vm.toggleCuts() }
+            Spacer(Modifier.width(8.dp))
+            IconToggle(BaIcons.Furn, vm.showFurniture) { vm.toggleFurniture() }
         }
     }
 }
@@ -135,21 +182,107 @@ private fun TopBar(vm: EditorViewModel, tab: Int) {
 private fun IconToggle(icon: ImageVector, on: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(37.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(42.dp)
+            .clip(RoundedCornerShape(13.dp))
             .background(if (on) AccSoft else Panel2)
-            .border(1.dp, if (on) Acc.copy(alpha = 0.45f) else LineC, RoundedCornerShape(12.dp))
+            .border(1.dp, if (on) Acc.copy(alpha = 0.45f) else LineC, RoundedCornerShape(13.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = if (on) Acc else Sub)
+        Icon(icon, null, Modifier.size(20.dp), tint = if (on) Acc else Sub)
     }
 }
 
 @Composable
 private fun EditorTab(vm: EditorViewModel) {
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+    // Планшет: план слева, настройки справа — панель ничего не перекрывает.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth >= 720.dp) {
+            Row(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    EditorStage(vm)
+                }
+                Column(
+                    Modifier
+                        .width(360.dp)
+                        .fillMaxHeight()
+                        .background(Panel)
+                        .padding(top = 8.dp),
+                ) {
+                    StatsRow(vm)
+                    Box(Modifier.weight(1f)) {
+                        PanelHost(vm, maxContentHeight = 2000.dp)
+                    }
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    EditorStage(vm)
+                }
+
+
+        // 0 — скрыта · 1 — половина (видно план и настройки) · 2 — полностью
+        var sheetState by rememberSaveable { mutableStateOf(1) }
+        val panelMax by animateDpAsState(if (sheetState >= 2) 330.dp else 172.dp, label = "sheetH")
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+                .background(Panel)
+                .border(
+                    1.dp,
+                    Brush.verticalGradient(listOf(Line2.copy(alpha = 0.8f), Color.Transparent)),
+                    RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+                ),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { sheetState = if (sheetState == 0) 1 else 0 }
+                    .pointerInput(Unit) {
+                        var acc = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { acc = 0f },
+                            onDragEnd = {
+                                if (acc < -30f) sheetState = (sheetState + 1).coerceAtMost(2)
+                                if (acc > 30f) sheetState = (sheetState - 1).coerceAtLeast(0)
+                            },
+                        ) { change, dy ->
+                            acc += dy
+                            change.consume()
+                        }
+                    }
+                    .padding(top = 9.dp, bottom = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = if (sheetState == 2) 58.dp else 42.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (sheetState == 0) Acc.copy(alpha = 0.7f) else Panel3),
+                )
+            }
+            Fade(visible = sheetState > 0) {
+                Column(Modifier.fillMaxWidth()) {
+                    StatsRow(vm)
+                    Box(Modifier.heightIn(max = panelMax)) {
+                        PanelHost(vm)
+                    }
+                }
+            }
+        }
+                }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.EditorStage(vm: EditorViewModel) {
             EditorCanvas(vm, Modifier.fillMaxSize())
 
             Row(
@@ -166,11 +299,94 @@ private fun EditorTab(vm: EditorViewModel) {
                 SegItem(BaIcons.Room, stringResource(R.string.mode_room), vm.roomMode) { vm.switchRoomMode(true) }
             }
 
+            Row(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(13.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                var menuOpen by remember { mutableStateOf(false) }
+                var askReset by remember { mutableStateOf(false) }
+                var askNew by remember { mutableStateOf(false) }
+                Box {
+                    RoundBtn(BaIcons.More, true) { menuOpen = true }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        modifier = Modifier.background(Panel2),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.fit), color = Txt, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; vm.fit() },
+                        )
+                        if (vm.room.points.size > 4) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(stringResource(R.string.simplify), color = Txt, fontSize = 13.sp)
+                                },
+                                onClick = { menuOpen = false; vm.simplifyRoom() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reset_all), color = Warn, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; askReset = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.new_project), color = Txt, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; askNew = true },
+                        )
+                    }
+                }
+                if (askReset) {
+                    AlertDialog(
+                        onDismissRequest = { askReset = false },
+                        containerColor = Panel2,
+                        title = { Text(stringResource(R.string.reset_all), color = Txt) },
+                        text = {
+                            Text(stringResource(R.string.reset_all_confirm), color = Sub, fontSize = 12.5.sp)
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { askReset = false; vm.resetPlacements() }) {
+                                Text(stringResource(R.string.apply), color = Acc2)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { askReset = false }) {
+                                Text(stringResource(R.string.cancel), color = Sub)
+                            }
+                        },
+                    )
+                }
+                if (askNew) {
+                    AlertDialog(
+                        onDismissRequest = { askNew = false },
+                        containerColor = Panel2,
+                        title = { Text(stringResource(R.string.new_project), color = Txt) },
+                        text = {
+                            Text(stringResource(R.string.new_confirm), color = Sub, fontSize = 12.5.sp)
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { askNew = false; vm.newProject() }) {
+                                Text(stringResource(R.string.apply), color = Acc2)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { askNew = false }) {
+                                Text(stringResource(R.string.cancel), color = Sub)
+                            }
+                        },
+                    )
+                }
+                RoundBtn(BaIcons.Undo, vm.canUndo) { vm.undo() }
+                RoundBtn(BaIcons.Redo, vm.canRedo) { vm.redo() }
+            }
+
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
                     .padding(15.dp)
                     .size(52.dp)
+                    .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = AccDeep, ambientColor = AccDeep)
                     .clip(RoundedCornerShape(18.dp))
                     .background(Brush.linearGradient(listOf(Acc, AccDeep)))
                     .clickable { vm.fit() },
@@ -179,9 +395,391 @@ private fun EditorTab(vm: EditorViewModel) {
                 Icon(BaIcons.Fit, null, Modifier.size(21.dp), tint = Color.White)
             }
 
+            // всё, что сейчас включено — видно и выключается отсюда, без захода в секции
+            val active = buildList<Pair<String, () -> Unit>> {
+                if (vm.paintMode) add(stringResource(R.string.paint) to { vm.togglePaintMode() })
+                if (vm.formatBrush) {
+                    add(stringResource(R.string.brush_size) to { vm.toggleFormatBrush() })
+                }
+                if (vm.tileColors.isNotEmpty()) {
+                    add(stringResource(R.string.paint_clear) to { vm.clearTileColors() })
+                }
+                if (vm.panelOn) add(stringResource(R.string.panel_off) to { vm.clearPanel() })
+                if (vm.showArt) add(stringResource(R.string.show_art) to { vm.toggleArt() })
+                if (vm.decor.mode != DecorMode.NONE) {
+                    add(stringResource(R.string.sec_decor) to { vm.setDecorMode(DecorMode.NONE) })
+                }
+                if (vm.activeZone >= 0) {
+                    add(stringResource(R.string.zones) to { vm.updateActiveZone(-1) })
+                }
+                if (vm.traceMode) add(stringResource(R.string.plan_trace) to { vm.toggleTraceMode() })
+                if (vm.calibMode) {
+                    add(stringResource(R.string.plan_calib) to { vm.updateCalibDialog(false) })
+                }
+                if (vm.planMove) add(stringResource(R.string.plan_move) to { vm.togglePlanMove() })
+                if (vm.planImage != null) {
+                    add(stringResource(R.string.plan_clear) to { vm.clearPlanImage() })
+                }
+                if (vm.ocrNumbers.isNotEmpty()) {
+                    add(stringResource(R.string.ocr_read) to { vm.clearOcr() })
+                }
+                if (vm.highlightCut != null) {
+                    add(stringResource(R.string.cuts_short) to { vm.clearHighlightCut() })
+                }
+            }
+            Fade(
+                visible = active.isNotEmpty(),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 13.dp, bottom = 13.dp, end = 74.dp),
+            ) {
+                Row(
+                    Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(Panel2.copy(alpha = 0.92f))
+                        .border(1.dp, LineC, RoundedCornerShape(13.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    active.forEach { (label, off) ->
+                        Chip("$label ✕", selected = true) { off() }
+                    }
+                }
+            }
+
+            Fade(
+                visible = vm.drawMode,
+                // ниже верхнего ряда (переключатель режима, меню, отмена/повтор),
+                // чтобы кнопки не перекрывали друг друга
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 68.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Panel2.copy(alpha = 0.94f))
+                            .border(1.dp, LineC, RoundedCornerShape(14.dp))
+                            .padding(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Chip(stringResource(R.string.draw_close), selected = true) { vm.finishDraw() }
+                        IconChip(BaIcons.Undo, stringResource(R.string.draw_undo)) { vm.undoDrawPoint() }
+                        IconChip(BaIcons.Close, stringResource(R.string.cancel), warn = true) {
+                            vm.cancelDraw()
+                        }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        stringResource(R.string.draw_hint),
+                        color = Sub,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(Panel2.copy(alpha = 0.8f))
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
+            val sel = vm.selection
+            Fade(
+                visible = sel != null,
+                // ниже верхнего ряда: кнопка отмены и переключатель узор/комната
+                // остаются видимыми и нажимаемыми при любом выборе
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 68.dp),
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth(0.96f)
+                        .horizontalScroll(rememberScrollState())
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Panel2.copy(alpha = 0.92f))
+                        .border(1.dp, LineC, RoundedCornerShape(14.dp))
+                        .padding(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    when (sel) {
+                        is Selection.Furn -> {
+                            Chip("90°") { vm.rotateSelectedFurn() }
+                            IconChip(BaIcons.Close, stringResource(R.string.del_furn), warn = true) {
+                                vm.deleteSelectedFurniture()
+                            }
+                        }
+                        is Selection.Vertex -> {
+                            Chip(stringResource(R.string.edge_lens)) { vm.updateEdgeDialog(true) }
+                            Chip(stringResource(R.string.fillet)) { vm.updateFilletDialog(true) }
+                            Chip(stringResource(R.string.niche)) { vm.addNicheAfterSelected() }
+                            IconChip(
+                                BaIcons.Close, stringResource(R.string.del_point), warn = true,
+                            ) { vm.deleteSelectedVertex() }
+                        }
+                        is Selection.Zone -> {
+                            val z = vm.zones.getOrNull(sel.i)
+                            if (z != null) {
+                                Text(
+                                    stringResource(R.string.zone_n, sel.i + 1) + " · " +
+                                        z.tile.widthMm.toInt() + "×" + z.tile.heightMm.toInt(),
+                                    color = Acc2,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterVertically)
+                                        .padding(horizontal = 7.dp),
+                                )
+                                IconChip(
+                                    BaIcons.Close, stringResource(R.string.del_zone), warn = true,
+                                ) { vm.deleteActiveZone() }
+                            }
+                        }
+
+                        is Selection.Cut -> IconChip(
+                            BaIcons.Close, stringResource(R.string.del_cutout), warn = true,
+                        ) { vm.deleteSelectedCutout() }
+
+                        is Selection.Tile -> {
+                            val t = vm.layout.tiles.getOrNull(sel.i)
+                            if (t != null) {
+                                // тот же номер, что на плане и в 3D: единая нумерация из ядра
+                                val info =
+                                    "${vm.tile.widthMm.toInt()}×${vm.tile.heightMm.toInt()}" +
+                                        if (t.cls == TileClass.CUT) {
+                                            " · " + stringResource(R.string.cut_tiles) +
+                                                cutChipSuffix(vm.cutInfo[sel.i])
+                                        } else {
+                                            ""
+                                        }
+                                Text(
+                                    info,
+                                    color = if (t.cls == TileClass.CUT) Warn else Sub,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterVertically)
+                                        .padding(horizontal = 7.dp),
+                                )
+                                Chip(
+                                    stringResource(R.string.sec_decor),
+                                    sel.i in vm.decorIdx,
+                                ) { vm.toggleTileDecor() }
+                                Chip(
+                                    stringResource(R.string.panel_here),
+                                    vm.panelCell(t) == (0 to 0),
+                                ) { vm.placePanelAtSelected() }
+                                if (vm.panelOn) {
+                                    Chip(stringResource(R.string.panel_off), warn = true) {
+                                        vm.clearPanel()
+                                    }
+                                }
+                            }
+                        }
+                        null -> Unit
+                    }
+                }
+            }
+
+            val selV = vm.selection as? Selection.Vertex
+            if (vm.edgeEditIndex >= 0 && vm.edgeEditIndex < vm.room.points.size) {
+                val ei = vm.edgeEditIndex
+                val ea = vm.room.points[ei]
+                val eb = vm.room.points[(ei + 1) % vm.room.points.size]
+                val curLen = kotlin.math.hypot(eb.x - ea.x, eb.y - ea.y)
+                var lenIn2 by remember(ei) {
+                    mutableStateOf(String.format(java.util.Locale.US, "%.2f", curLen))
+                }
+                var moveEnd2 by remember(ei) { mutableStateOf(true) }
+                AlertDialog(
+                    onDismissRequest = { vm.closeEdgeEdit() },
+                    containerColor = Panel2,
+                    title = { Text(stringResource(R.string.edge_len_title, ei + 1), color = Txt) },
+                    text = {
+                        Column {
+                            OutlinedTextField(
+                                value = lenIn2,
+                                onValueChange = { lenIn2 = it },
+                                label = { Text(stringResource(R.string.len_m)) },
+                                singleLine = true,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text(stringResource(R.string.move_which), color = Dim, fontSize = 10.sp)
+                            Spacer(Modifier.height(5.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Chip("A", selected = !moveEnd2) { moveEnd2 = false }
+                                Chip("B", selected = moveEnd2) { moveEnd2 = true }
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                stringResource(R.string.edge_len_hint),
+                                color = Sub,
+                                fontSize = 10.5.sp,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            lenIn2.replace(',', '.').toDoubleOrNull()?.let {
+                                vm.setEdgeLength(ei, it, moveEnd2)
+                            }
+                            vm.closeEdgeEdit()
+                        }) { Text(stringResource(R.string.apply), color = Acc2) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { vm.closeEdgeEdit() }) {
+                            Text(stringResource(R.string.cancel), color = Sub)
+                        }
+                    },
+                )
+            }
+
+            if (vm.edgeDialog && selV != null) {
+                val n = vm.room.points.size
+                val cur = vm.room.points[selV.i]
+                val pPrev = vm.room.points[(selV.i - 1 + n) % n]
+                val pNext = vm.room.points[(selV.i + 1) % n]
+                fun len(a: Pt, b: Pt): Double =
+                    kotlin.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y))
+                var prevIn by remember(selV.i) {
+                    mutableStateOf(String.format(java.util.Locale.US, "%.2f", len(cur, pPrev)))
+                }
+                var nextIn by remember(selV.i) {
+                    mutableStateOf(String.format(java.util.Locale.US, "%.2f", len(cur, pNext)))
+                }
+                AlertDialog(
+                    onDismissRequest = { vm.updateEdgeDialog(false) },
+                    containerColor = Panel2,
+                    title = { Text(stringResource(R.string.edge_lens), color = Txt) },
+                    text = {
+                        Column {
+                            OutlinedTextField(
+                                value = prevIn,
+                                onValueChange = { prevIn = it },
+                                label = { Text(stringResource(R.string.edge_prev)) },
+                                singleLine = true,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = nextIn,
+                                onValueChange = { nextIn = it },
+                                label = { Text(stringResource(R.string.edge_next)) },
+                                singleLine = true,
+                            )
+                            val near = vm.ocrNear(cur)
+                            if (near.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(stringResource(R.string.ocr_pick), color = Dim, fontSize = 10.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Row(
+                                    Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    near.forEach { v ->
+                                        Chip(String.format(Locale.getDefault(), "%.2f", v)) {
+                                            nextIn = String.format(Locale.US, "%.2f", v)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val a = prevIn.replace(',', '.').toDoubleOrNull() ?: 0.0
+                            val b = nextIn.replace(',', '.').toDoubleOrNull() ?: 0.0
+                            vm.applyEdgeLengths(a, b)
+                            vm.updateEdgeDialog(false)
+                        }) { Text(stringResource(R.string.apply), color = Acc2) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { vm.updateEdgeDialog(false) }) {
+                            Text(stringResource(R.string.cancel), color = Sub)
+                        }
+                    },
+                )
+            }
+
+            if (vm.calibDialog) {
+                var lenIn by remember(vm.calibB) { mutableStateOf("") }
+                AlertDialog(
+                    onDismissRequest = { vm.updateCalibDialog(false) },
+                    containerColor = Panel2,
+                    title = { Text(stringResource(R.string.plan_calib), color = Txt) },
+                    text = {
+                        Column {
+                            Text(
+                                stringResource(R.string.plan_calib_hint),
+                                color = Sub,
+                                fontSize = 11.5.sp,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = lenIn,
+                                onValueChange = { lenIn = it },
+                                label = { Text(stringResource(R.string.plan_len)) },
+                                singleLine = true,
+                            )
+                            if (vm.ocrNumbers.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(stringResource(R.string.ocr_pick), color = Dim, fontSize = 10.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Row(
+                                    Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    vm.ocrNumbers.take(6).forEach { (v, _, _) ->
+                                        Chip(String.format(Locale.getDefault(), "%.2f", v)) {
+                                            lenIn = String.format(Locale.US, "%.2f", v)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val v = lenIn.replace(',', '.').toDoubleOrNull() ?: 0.0
+                            if (v > 0.01) vm.applyCalibration(v) else vm.updateCalibDialog(false)
+                        }) { Text(stringResource(R.string.apply), color = Acc2) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { vm.updateCalibDialog(false) }) {
+                            Text(stringResource(R.string.cancel), color = Sub)
+                        }
+                    },
+                )
+            }
+
+            if (vm.filletDialog && selV != null) {
+                var rIn by remember(selV.i) { mutableStateOf("0.50") }
+                AlertDialog(
+                    onDismissRequest = { vm.updateFilletDialog(false) },
+                    containerColor = Panel2,
+                    title = { Text(stringResource(R.string.fillet), color = Txt) },
+                    text = {
+                        OutlinedTextField(
+                            value = rIn,
+                            onValueChange = { rIn = it },
+                            label = { Text(stringResource(R.string.fillet_r)) },
+                            singleLine = true,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val r = rIn.replace(',', '.').toDoubleOrNull() ?: 0.0
+                            if (r > 0.04) vm.roundSelectedCorner(r)
+                            vm.updateFilletDialog(false)
+                        }) { Text(stringResource(R.string.apply), color = Acc2) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { vm.updateFilletDialog(false) }) {
+                            Text(stringResource(R.string.cancel), color = Sub)
+                        }
+                    },
+                )
+            }
+
             Fade(
                 visible = vm.layout.overLimit,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 118.dp, start = 16.dp, end = 16.dp),
             ) {
                 Text(
                     stringResource(R.string.too_many),
@@ -193,6 +791,45 @@ private fun EditorTab(vm: EditorViewModel) {
                         .border(1.dp, Warn.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                         .padding(horizontal = 11.dp, vertical = 8.dp),
                 )
+            }
+
+            // предупреждение о полоске — на экране, а не в глубине «Советов»:
+            // тап по тексту подсвечивает стену, «Исправить» сдвигает узор до полуплитки
+            val thinWarn = vm.cutReport.warnings
+                .filter { it.code == "THIN_STRIP" }
+                .minByOrNull { it.valueCm }
+            Fade(
+                visible = thinWarn != null && !vm.drawMode && !vm.layout.overLimit,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 56.dp, start = 16.dp, end = 16.dp),
+            ) {
+                thinWarn?.let { tw ->
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Panel2.copy(alpha = 0.95f))
+                            .border(1.dp, Warn.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            stringResource(
+                                R.string.warn_thin,
+                                String.format(Locale.getDefault(), "%.1f", tw.valueCm),
+                                tw.edgeIndex + 1,
+                            ),
+                            color = Warn,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { vm.toggleWarnEdge(tw.edgeIndex) },
+                        )
+                        if (vm.pattern.rotationDeg == 0.0) {
+                            Chip(stringResource(R.string.warn_fix)) { vm.fixThinEdge(tw.edgeIndex) }
+                        }
+                    }
+                }
             }
 
             Fade(
@@ -212,30 +849,47 @@ private fun EditorTab(vm: EditorViewModel) {
             }
         }
 
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
-                .background(Panel),
-        ) {
-            Box(
-                Modifier
-                    .padding(top = 9.dp, bottom = 3.dp)
-                    .align(Alignment.CenterHorizontally)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(RoundedCornerShape(99.dp))
-                    .background(Panel3),
-            )
-            StatsRow(vm)
-            PanelHost(vm)
-        }
-    }
-}
-
 /**
  * Обёртка над AnimatedVisibility: вызывается вне ColumnScope/RowScope,
  * поэтому выбирается обычная перегрузка, а не scope-расширение.
  */
+/**
+ * Диагональная подложка со знаком автора: строки чередуют название программы и имя.
+ * Не перехватывает касания (Canvas без обработчиков), убирается донат-кодом.
+ */
+@Composable
+private fun WatermarkOverlay() {
+    val app = stringResource(R.string.app_name)
+    val author = "Baziulkin Alexander"
+    Canvas(Modifier.fillMaxSize()) {
+        val d = density
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(20, 233, 238, 246)
+            textSize = 13f * d
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+        val stepY = 104f * d
+        val stepX = 250f * d
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.save()
+            canvas.nativeCanvas.rotate(-28f, size.width / 2f, size.height / 2f)
+            var row = 0
+            var y = -size.height * 0.4f
+            while (y < size.height * 1.4f) {
+                val text = if (row % 2 == 0) app else author
+                var x = -size.width * 0.4f + (row % 2) * stepX * 0.5f
+                while (x < size.width * 1.4f) {
+                    canvas.nativeCanvas.drawText(text, x, y, paint)
+                    x += stepX
+                }
+                y += stepY
+                row++
+            }
+            canvas.nativeCanvas.restore()
+        }
+    }
+}
+
 @Composable
 private fun Fade(
     visible: Boolean,
@@ -253,16 +907,37 @@ private fun Fade(
 }
 
 @Composable
+private fun RoundBtn(icon: ImageVector, enabled: Boolean, onClick: () -> Unit) {
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.32f, label = "btn")
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val k by animateFloatAsState(if (pressed && enabled) 0.9f else 1f, label = "btnK")
+    Box(
+        Modifier
+            .graphicsLayer { scaleX = k; scaleY = k }
+            .size(44.dp)
+            .shadow(6.dp, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(13.dp))
+            .background(Panel2.copy(alpha = 0.88f))
+            .border(1.dp, LineC, RoundedCornerShape(13.dp))
+            .clickable(enabled = enabled, interactionSource = press, indication = null) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, Modifier.size(19.dp), tint = Acc2.copy(alpha = alpha))
+    }
+}
+
+@Composable
 private fun SegItem(icon: ImageVector, text: String, on: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .clip(RoundedCornerShape(11.dp))
             .background(if (on) Brush.linearGradient(listOf(Acc, AccDeep)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(15.dp), tint = if (on) Color.White else Sub)
+        Icon(icon, null, Modifier.size(16.dp), tint = if (on) Color.White else Sub)
         Spacer(Modifier.width(6.dp))
         Text(text, color = if (on) Color.White else Sub, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
     }
@@ -271,6 +946,42 @@ private fun SegItem(icon: ImageVector, text: String, on: Boolean, onClick: () ->
 @Composable
 private fun StatsRow(vm: EditorViewModel) {
     val l = vm.layout
+    val totals = if (vm.statsApartment && vm.rooms.size > 1) vm.apartmentTotals() else null
+    val areaVal = totals?.get(0)?.toDouble() ?: vm.layout.areaM2
+    val fullVal = totals?.get(1)?.toInt() ?: vm.layout.fullCount
+    val cutVal = totals?.get(2)?.toInt() ?: (vm.layout.cutCount + vm.thresholdPieces)
+    val buyVal = totals?.get(3)?.toInt() ?: vm.buyCount
+    val full by animateIntAsState(fullVal, label = "full")
+    val cut by animateIntAsState(cutVal, label = "cut")
+    val buy by animateIntAsState(buyVal, label = "buy")
+    val tileAreaM2 = vm.tile.widthMm * vm.tile.heightMm / 1_000_000.0
+    val unitPc = if (vm.prices.tilePc > 0) vm.prices.tilePc else vm.prices.tileM2 * tileAreaM2
+    val roomName = vm.rooms.getOrNull(vm.activeRoom)?.name?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.room_n, vm.activeRoom + 1)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 15.dp, end = 15.dp, top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            if (vm.statsApartment) stringResource(R.string.scope_flat) else roomName,
+            color = Acc2,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (vm.rooms.size > 1) {
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Chip(stringResource(R.string.scope_room), !vm.statsApartment) {
+                    if (vm.statsApartment) vm.toggleStatsScope()
+                }
+                Chip(stringResource(R.string.scope_flat), vm.statsApartment) {
+                    if (!vm.statsApartment) vm.toggleStatsScope()
+                }
+            }
+        }
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -280,17 +991,27 @@ private fun StatsRow(vm: EditorViewModel) {
     ) {
         Stat(
             stringResource(R.string.area),
-            String.format(Locale.getDefault(), "%.2f", l.areaM2),
+            String.format(Locale.getDefault(), "%.2f", areaVal),
             stringResource(R.string.unit_m2),
         )
-        Stat(stringResource(R.string.full_tiles), l.fullCount.toString())
-        Stat(stringResource(R.string.cut_tiles), l.cutCount.toString(), valueColor = Warn)
+        Stat(stringResource(R.string.full_tiles), full.toString())
+        Stat(
+            stringResource(R.string.cut_tiles),
+            cut.toString(),
+            valueColor = Warn,
+            onClick = { vm.updatePanelSection(6) },
+        )
         Stat(
             stringResource(R.string.buy),
-            vm.buyCount.toString(),
+            buy.toString(),
             stringResource(R.string.pcs),
             accent = true,
-            extra = "+${vm.reservePct}%",
+            onClick = { vm.updatePanelSection(7) },
+            extra = if (unitPc > 0) {
+                money(vm.buyCount * unitPc, vm.prices.currency) + " · +${vm.reservePct}%"
+            } else {
+                "+${vm.reservePct}%"
+            },
         )
     }
 }
@@ -301,6 +1022,7 @@ private fun Stat(
     value: String,
     unit: String? = null,
     valueColor: Color = Txt,
+    onClick: (() -> Unit)? = null,
     accent: Boolean = false,
     extra: String? = null,
 ) {
@@ -308,7 +1030,18 @@ private fun Stat(
         Modifier
             .widthIn(min = 88.dp)
             .clip(RoundedCornerShape(13.dp))
-            .background(if (accent) AccSoft else Panel2)
+            .then(
+                if (onClick != null) Modifier.clickable { onClick() } else Modifier,
+            )
+            .then(
+                if (accent) {
+                    Modifier.background(
+                        Brush.linearGradient(listOf(Acc.copy(alpha = 0.30f), Acc.copy(alpha = 0.10f))),
+                    )
+                } else {
+                    Modifier.background(Panel2)
+                },
+            )
             .border(1.dp, if (accent) Acc.copy(alpha = 0.4f) else LineC, RoundedCornerShape(13.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
@@ -335,34 +1068,82 @@ private fun Stat(
 
 @Composable
 private fun BottomNav(tab: Int, onTab: (Int) -> Unit) {
-    NavigationBar(containerColor = Panel, tonalElevation = 0.dp) {
-        val colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = Acc,
-            selectedTextColor = Txt,
-            indicatorColor = AccSoft,
-            unselectedIconColor = Dim,
-            unselectedTextColor = Dim,
-        )
-        NavigationBarItem(
-            selected = tab == 0,
-            onClick = { onTab(0) },
-            icon = { Icon(BaIcons.Tile, null, Modifier.size(21.dp)) },
-            label = { Text(stringResource(R.string.tab_editor), fontSize = 10.5.sp) },
-            colors = colors,
-        )
-        NavigationBarItem(
-            selected = tab == 1,
-            onClick = { onTab(1) },
-            icon = { Icon(BaIcons.Doc, null, Modifier.size(21.dp)) },
-            label = { Text(stringResource(R.string.tab_report), fontSize = 10.5.sp) },
-            colors = colors,
-        )
-        NavigationBarItem(
-            selected = tab == 2,
-            onClick = { onTab(2) },
-            icon = { Icon(BaIcons.Star, null, Modifier.size(21.dp)) },
-            label = { Text(stringResource(R.string.tab_pro), fontSize = 10.5.sp) },
-            colors = colors,
-        )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Panel)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+    ) {
+        NavItem(BaIcons.Tile, stringResource(R.string.tab_editor), tab == 0, Modifier.weight(1f)) { onTab(0) }
+        NavItem(BaIcons.Cube, stringResource(R.string.tab_3d), tab == 1, Modifier.weight(1f)) { onTab(1) }
+        NavItem(BaIcons.Camera, stringResource(R.string.tab_fit), tab == 2, Modifier.weight(1f)) { onTab(2) }
+        NavItem(BaIcons.Doc, stringResource(R.string.tab_report), tab == 3, Modifier.weight(1f)) { onTab(3) }
+        NavItem(BaIcons.Star, stringResource(R.string.tab_pro), tab == 4, Modifier.weight(1f)) { onTab(4) }
     }
+}
+
+@Composable
+private fun NavItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val pill by animateColorAsState(if (selected) AccSoft else Color.Transparent, label = "navPill")
+    val tint by animateColorAsState(if (selected) Acc else Dim, label = "navTint")
+    val text by animateColorAsState(if (selected) Txt else Dim, label = "navText")
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val k by animateFloatAsState(if (pressed) 0.92f else 1f, label = "navK")
+    val haptic = LocalHapticFeedback.current
+    Column(
+        modifier
+            .graphicsLayer { scaleX = k; scaleY = k }
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(interactionSource = press, indication = null) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(99.dp))
+                .background(pill)
+                .padding(horizontal = 17.dp, vertical = 4.dp),
+        ) {
+            Icon(icon, null, Modifier.size(20.dp), tint = tint)
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/**
+ * Общий хвост чипа подрезки для 2D и 3D:
+ * « №N · остаётся W×H мм (P%) · срезано C мм».
+ * Номер и размеры берутся из единой нумерации ядра; процент — реальная
+ * площадь куска, а не габаритная рамка. Для куска без номера (крохотная
+ * полоска) возвращается пустая строка.
+ */
+@Composable
+internal fun cutChipSuffix(ci: CutPieceInfo?): String {
+    if (ci == null) return ""
+    val remain = stringResource(R.string.cut_remain)
+    val cutOff = stringResource(R.string.cut_off)
+    val mm = stringResource(R.string.unit_mm)
+    val sb = StringBuilder()
+    sb.append(" №").append(ci.number)
+        .append(" · ").append(remain).append(' ')
+        .append(ci.wMm.roundToInt()).append('×').append(ci.hMm.roundToInt())
+        .append(' ').append(mm)
+        .append(" (").append(ci.areaPct.roundToInt()).append("%)")
+    val off = ci.cutOffMm
+    if (off != null && off >= 1.0) {
+        sb.append(" · ").append(cutOff).append(' ')
+            .append(off.roundToInt()).append(' ').append(mm)
+    }
+    return sb.toString()
 }

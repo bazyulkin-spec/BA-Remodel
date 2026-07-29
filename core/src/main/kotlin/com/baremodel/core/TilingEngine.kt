@@ -199,7 +199,11 @@ object TilingEngine {
             tiles.add(PlacedTile(q, cls, rc))
         }
 
-        val area = polygonArea(pts) - room.cutouts.sumOf { it.w * it.h }
+        // вычитаем только ту часть выреза, которая реально попала в комнату:
+        // вырез, вылезший за стену, раньше уводил площадь в минус
+        val area = polygonArea(pts) - room.cutouts.sumOf { c ->
+            polygonArea(clipPolygonByRect(pts, c.x, c.y, c.x + c.w, c.y + c.h))
+        }
         val pieces = pieceMap.entries
             .map { (k, n) -> CutPiece((k shr 20).toDouble() / 2.0, (k and 0xFFFFFL).toDouble() / 2.0, n) }
             .sortedWith(compareByDescending<CutPiece> { it.count }.thenByDescending { it.aCm })

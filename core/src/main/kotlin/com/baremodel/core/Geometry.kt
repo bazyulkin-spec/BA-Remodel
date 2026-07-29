@@ -72,3 +72,56 @@ fun clipPolygonByQuad(subject: List<Pt>, quad: List<Pt>): List<Pt> {
     }
     return out
 }
+
+/**
+ * Отсечение многоугольника прямоугольником (Сазерленд—Ходжман).
+ * Прямоугольник выпуклый, поэтому алгоритм корректен для любых контуров;
+ * у невыпуклых фигур части соединяются нулевой ширины перемычками —
+ * на площадь и попадание точки это не влияет.
+ */
+fun clipPolygonByRect(poly: List<Pt>, x0: Double, y0: Double, x1: Double, y1: Double): List<Pt> {
+    if (poly.size < 3) return emptyList()
+    val minX = minOf(x0, x1)
+    val maxX = maxOf(x0, x1)
+    val minY = minOf(y0, y1)
+    val maxY = maxOf(y0, y1)
+
+    fun inside(p: Pt, edge: Int): Boolean = when (edge) {
+        0 -> p.x >= minX
+        1 -> p.x <= maxX
+        2 -> p.y >= minY
+        else -> p.y <= maxY
+    }
+
+    fun cross(a: Pt, b: Pt, edge: Int): Pt {
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        return when (edge) {
+            0 -> Pt(minX, a.y + dy * (minX - a.x) / dx)
+            1 -> Pt(maxX, a.y + dy * (maxX - a.x) / dx)
+            2 -> Pt(a.x + dx * (minY - a.y) / dy, minY)
+            else -> Pt(a.x + dx * (maxY - a.y) / dy, maxY)
+        }
+    }
+
+    var out = poly
+    for (edge in 0..3) {
+        if (out.isEmpty()) return emptyList()
+        val input = out
+        val res = ArrayList<Pt>(input.size + 4)
+        for (i in input.indices) {
+            val cur = input[i]
+            val prev = input[(i - 1 + input.size) % input.size]
+            val curIn = inside(cur, edge)
+            val prevIn = inside(prev, edge)
+            if (curIn) {
+                if (!prevIn) res.add(cross(prev, cur, edge))
+                res.add(cur)
+            } else if (prevIn) {
+                res.add(cross(prev, cur, edge))
+            }
+        }
+        out = res
+    }
+    return out
+}

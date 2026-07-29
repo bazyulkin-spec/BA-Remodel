@@ -47,6 +47,53 @@ if grep -n "AnimatedVisibility(" $E/*.kt | grep -v "private fun Fade" | grep -v 
   echo "  проверьте вызовы AnimatedVisibility вне Fade"
 fi
 
+echo "== 5b. иконки / цвета / типы ядра без импорта =="
+A=app/src/main/java/com/baremodel/app
+for i in $(grep -rhoE "BaIcons\.[A-Za-z]+" $A | sed 's/BaIcons\.//' | sort -u); do
+  grep -q "val $i:" $A/ui/theme/Icons.kt || { echo "  MISS BaIcons.$i"; fail=1; }
+done
+for f in $(find $A -name "*.kt" ! -path "*/ui/theme/*"); do
+  for c in $(grep -oE "\b(Bg|Panel|Panel2|Panel3|LineC|Line2|Txt|Sub|Dim|Acc|Acc2|AccDeep|AccSoft|WarmSoft|Warn|Good|Bad|CanvasBg|GroutC)\b" "$f" | sort -u); do
+    grep -qE "^import com\.baremodel\.app\.ui\.theme\.$c$" "$f" || { echo "  MISS $c в $(basename $f)"; fail=1; }
+  done
+  for t in $(grep -oE "\b(Furniture|CoverageAnalyzer|CoverageReport|CutPiece|CutAnalyzer|CutReport|DecorSpec|DecorMode|DecorPlanner|ArtRect|AnchorMode|Aligner|TileSpec|RoomSpec|PatternSpec|PatternType|Pt|LayoutResult|TileClass|LocalRect|TilingEngine|LayoutSuggester)\b" "$f" | sort -u); do
+    grep -qE "^import com\.baremodel\.core\.$t$" "$f" || { echo "  MISS $t в $(basename $f)"; fail=1; }
+  done
+done
+
+echo "== 5b2. типы отрисовки без импорта =="
+for f in $(find app/src/main/java -name "*.kt"); do
+  for t in Stroke Path PathEffect StrokeJoin CornerRadius; do
+    if grep -q "[^A-Za-z]$t(" "$f" && ! grep -q "^import .*\.$t$" "$f"; then
+      echo "  MISS $t в $(basename $f)"; fail=1
+    fi
+  done
+done
+
+echo "== 5c. дубли импортов =="
+for f in $(find app/src/main/java core/src/main/kotlin -name "*.kt" 2>/dev/null); do
+  d=$(grep "^import " "$f" | sort | uniq -d)
+  [ -n "$d" ] && { echo "  ДУБЛЬ в $(basename $f): $d"; fail=1; }
+  a=$(grep "^import " "$f" | sed 's/^import //; s/^\(.*\)\.\([A-Za-z0-9_]*\)$/\2/' | sort | uniq -d)
+  for name in $a; do
+    n=$(grep -c "^import .*\.$name$" "$f")
+    [ "$n" -gt 1 ] && { echo "  КОНФЛИКТ ИМЕНИ $name в $(basename $f)"; fail=1; }
+  done
+done
+
+echo "== 5c2. импорт без пакета =="
+bad=$(grep -rn "^import [A-Z]" app/src/main/java core/src/main/kotlin --include="*.kt" 2>/dev/null)
+[ -n "$bad" ] && { echo "  импорт без пакета:"; echo "$bad"; fail=1; }
+
+echo "== 5d. init-блоки только после всех свойств =="
+for f in $(grep -rl "^    init {" app/src/main/java --include="*.kt" 2>/dev/null); do
+  li=$(grep -n "^    init {" "$f" | head -1 | cut -d: -f1)
+  lp=$(grep -n "by mutableStateOf" "$f" | tail -1 | cut -d: -f1)
+  if [ -n "$li" ] && [ -n "$lp" ] && [ "$li" -lt "$lp" ]; then
+    echo "  init ВЫШЕ свойств в $(basename $f): init@$li, последнее свойство@$lp"; fail=1
+  fi
+done
+
 echo "== 6. баланс скобок =="
 python3 - <<'PY' || fail=1
 import glob, sys
@@ -73,6 +120,19 @@ for p in sorted(glob.glob('app/src/main/java/**/*.kt', recursive=True)):
 print("  файлов с дисбалансом:", bad)
 sys.exit(1 if bad else 0)
 PY
+
+echo "== 7. @Composable внутри не-inline лямбд (joinToString/run по ссылке) =="
+# joinToString НЕ inline: stringResource/painterResource внутри её лямбды не компилируется.
+# Грубая эвристика: composable-вызов в пределах 8 строк после joinToString( в том же файле.
+BAD7=$(find app/src -name "*.kt" -exec awk '
+  FNR==1 { w = 0 }
+  /joinToString\(/ { w = 8 }
+  w > 0 && /stringResource\(|painterResource\(/ {
+    print "  " FILENAME ":" FNR " composable внутри joinToString?"
+  }
+  { if (w > 0) w-- }
+' {} + | tee /dev/stderr | wc -l)
+if [ "$BAD7" -gt 0 ]; then fail=1; fi
 
 [ $fail -eq 0 ] && echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" || echo "ЕСТЬ ЗАМЕЧАНИЯ"
 exit $fail

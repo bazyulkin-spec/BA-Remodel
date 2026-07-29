@@ -1,3 +1,8 @@
+// Релизный ключ берётся из файла upload-keystore.jks в корне проекта.
+// В CI он восстанавливается из секрета KEYSTORE_BASE64, локально его просто нет —
+// тогда release собирается без подписи, а debug работает как обычно.
+val uploadKeystore = rootProject.file(System.getenv("KEYSTORE_FILE") ?: "upload-keystore.jks")
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,11 +18,23 @@ android {
         applicationId = "com.baremodel.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // Каждая загрузка в Play требует нового versionCode — CI подставляет номер запуска.
+        versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "0.9.0"
     }
 
     signingConfigs {
+        if (uploadKeystore.exists()) {
+            create("release") {
+                storeFile = uploadKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
         getByName("debug") {
             // v1 нужна старым эмуляторам и сторонним установщикам, v2/v3 — современным Android
             enableV1Signing = true
@@ -30,6 +47,7 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (uploadKeystore.exists()) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -41,6 +59,8 @@ android {
 }
 
 dependencies {
+    implementation("com.google.ar:core:1.45.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

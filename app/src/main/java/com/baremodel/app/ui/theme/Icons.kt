@@ -53,6 +53,19 @@ object BaIcons {
     val Close: ImageVector = stroked("close", "M6 6l12 12 M18 6 6 18")
     val Star: ImageVector = stroked("star", "M12 3.5l2.6 5.5 5.9.8-4.3 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.5 9.8l5.9-.8L12 3.5Z")
     val Check: ImageVector = stroked("check", "M4 12.5 9.5 18 20 6.5")
+    val Furn: ImageVector = stroked(
+        "furn",
+        "M4 11V7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5V11 " +
+            "M3 11h18v6H3v-6Z M5.5 17v2 M18.5 17v2",
+    )
+    val Cube: ImageVector = stroked(
+        "cube",
+        "M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z M3.5 7 12 11.6 20.5 7 M12 11.6V21.4",
+    )
+    val More: ImageVector = stroked("more", "M5 12h.01 M12 12h.01 M19 12h.01")
+
+    val Undo: ImageVector = stroked("undo", "M4 9h11a5 5 0 0 1 0 10h-6 M4 9l4-4 M4 9l4 4")
+    val Redo: ImageVector = stroked("redo", "M20 9H9a5 5 0 0 0 0 10h6 M20 9l-4-4 M20 9l-4 4")
     val Palette: ImageVector = stroked(
         "palette",
         "M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-1.2-1-1.7-1-2.7 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4-4-7-9-7Z",

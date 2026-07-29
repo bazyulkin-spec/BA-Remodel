@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Что попадает в облачную копию Google: дата начала пробного периода и проекты. -->
+<full-backup-content>
+    <include domain="sharedpref" path="ba_trial.xml" />
+    <include domain="file" path="trial.dat" />
+        <include domain="file" path="logo.png" />
+    <include domain="file" path="projects/" />
+    <exclude domain="file" path="reports/" />
+</full-backup-content>

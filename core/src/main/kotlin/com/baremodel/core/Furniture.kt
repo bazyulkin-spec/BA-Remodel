@@ -29,6 +29,8 @@ data class Furniture(
     override val h: Double,
     override val heightM: Double = 0.85,
     override val coversFinish: Boolean = true,
+    /** Силуэт на плане: box / bath / wc / washer / fridge / kitchen / cabinet. */
+    val kind: String = "box",
 ) : IPlacer {
     val corners: List<Pt>
         get() = listOf(Pt(x, y), Pt(x + w, y), Pt(x + w, y + h), Pt(x, y + h))

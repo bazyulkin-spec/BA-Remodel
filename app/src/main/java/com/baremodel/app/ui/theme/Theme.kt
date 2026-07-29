@@ -8,8 +8,11 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.baremodel.app.R
 import androidx.compose.ui.unit.sp
 
 // Палитра из утверждённого макета BA-Remodel-Design.html
@@ -57,15 +60,34 @@ private val BaShapes = Shapes(
     extraLarge = RoundedCornerShape(26.dp),
 )
 
+/** Inter — тот же шрифт, что в макете; при сбое загрузки система подставит свой. */
+val Inter = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+    Font(R.font.inter_bold, FontWeight.ExtraBold),
+)
+
 private val BaType = Typography(
-    titleLarge = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
-    titleMedium = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp),
-    bodyMedium = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.Normal),
-    labelLarge = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
-    labelSmall = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp),
+    titleLarge = TextStyle(fontFamily = Inter, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
+    titleMedium = TextStyle(fontFamily = Inter, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp),
+    bodyMedium = TextStyle(fontFamily = Inter, fontSize = 12.5.sp, fontWeight = FontWeight.Normal),
+    labelLarge = TextStyle(fontFamily = Inter, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+    labelSmall = TextStyle(fontFamily = Inter, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.9.sp),
 )
 
 @Composable
 fun BARemodelTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Scheme, shapes = BaShapes, typography = BaType, content = content)
+    MaterialTheme(
+        colorScheme = Scheme,
+        shapes = BaShapes,
+        typography = BaType.copy(
+            displayLarge = BaType.displayLarge.copy(fontFamily = Inter),
+            headlineSmall = BaType.headlineSmall.copy(fontFamily = Inter),
+            bodyLarge = BaType.bodyLarge.copy(fontFamily = Inter),
+            bodySmall = BaType.bodySmall.copy(fontFamily = Inter),
+            labelMedium = BaType.labelMedium.copy(fontFamily = Inter),
+        ),
+        content = content,
+    )
 }

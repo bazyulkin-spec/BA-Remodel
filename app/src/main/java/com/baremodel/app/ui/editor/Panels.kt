@@ -25,12 +25,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -73,11 +87,18 @@ import com.baremodel.app.ui.theme.Warn
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.ArtRect
 import com.baremodel.core.DecorMode
+import com.baremodel.core.CutPiece
+import com.baremodel.core.Finish
+import com.baremodel.core.MaterialCalc
+import com.baremodel.core.SurfaceKind
 import com.baremodel.core.LayoutSuggester
 import com.baremodel.core.PatternType
+import com.baremodel.core.TileSpec
 import com.baremodel.core.polygonPerimeter
 import java.text.DateFormat
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.sqrt
 import java.util.Date
 import java.util.Locale
 
@@ -90,20 +111,35 @@ fun Chip(
     warn: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val border = if (warn) Warn else if (selected) Acc else LineC
-    val bg = when {
-        warn -> Warn.copy(alpha = 0.14f)
-        selected -> Acc.copy(alpha = 0.16f)
-        else -> Color.Transparent
-    }
-    val fg = if (warn) Warn else if (selected) Acc2 else Sub
+    val border by animateColorAsState(
+        if (warn) Warn else if (selected) Acc else LineC, label = "chipBorder",
+    )
+    val bg by animateColorAsState(
+        when {
+            warn -> Warn.copy(alpha = 0.14f)
+            selected -> AccSoft
+            else -> Color.Transparent
+        },
+        label = "chipBg",
+    )
+    val fg by animateColorAsState(
+        if (warn) Warn else if (selected) Acc2 else Sub, label = "chipFg",
+    )
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val k by animateFloatAsState(if (pressed) 0.93f else 1f, label = "chipK")
+    val haptic = LocalHapticFeedback.current
     Box(
         Modifier
-            .clip(RoundedCornerShape(9.dp))
+            .graphicsLayer { scaleX = k; scaleY = k }
+            .clip(RoundedCornerShape(11.dp))
             .background(bg)
-            .border(1.dp, border, RoundedCornerShape(9.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .border(1.dp, border, RoundedCornerShape(11.dp))
+            .clickable(interactionSource = press, indication = null) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Text(text, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
@@ -124,13 +160,24 @@ fun IconChip(
         else -> Color.Transparent
     }
     val fg = if (warn) Warn else if (selected) Acc2 else Sub
+    val pressSrc = remember { MutableInteractionSource() }
+    val pressed2 by pressSrc.collectIsPressedAsState()
+    val k2 by animateFloatAsState(if (pressed2) 0.93f else 1f, label = "iconChipK")
+    val haptic2 = LocalHapticFeedback.current
     Row(
         Modifier
+            .graphicsLayer { scaleX = k2; scaleY = k2 }
             .clip(RoundedCornerShape(11.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(11.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 8.dp),
+            .clickable(
+                interactionSource = pressSrc,
+                indication = null,
+            ) {
+                haptic2.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, Modifier.size(15.dp), tint = fg)
@@ -259,12 +306,25 @@ private fun Line(label: String, value: String, valueColor: Color = Txt) {
 // ---------- хост панелей ----------
 
 @Composable
-fun PanelHost(vm: EditorViewModel) {
-    var section by rememberSaveable { mutableStateOf(0) }
-    val titles = listOf(
-        R.string.sec_tile, R.string.sec_pattern, R.string.sec_decor, R.string.sec_room,
-        R.string.sec_calc, R.string.sec_tips, R.string.sec_project,
+fun PanelHost(vm: EditorViewModel, maxContentHeight: Dp = 300.dp) {
+    val section = vm.panelSection
+    // Две ступени вместо ленты из десяти чипов: пять понятных групп, внутри — подразделы.
+    // Номера секций прежние (0..9), поэтому сохранённый выбор и все ссылки работают.
+    val groups = listOf(
+        R.string.grp_room to listOf(2 to R.string.sec_room, 4 to R.string.sec_surfaces),
+        R.string.grp_tile to listOf(0 to R.string.sec_tile, 1 to R.string.sec_pattern),
+        R.string.grp_furnish to listOf(3 to R.string.sec_furn),
+        R.string.grp_calc to listOf(
+            5 to R.string.sec_calc, 6 to R.string.sec_offcuts,
+            7 to R.string.sec_estimate, 8 to R.string.sec_tips,
+        ),
+        R.string.grp_project to listOf(9 to R.string.sec_project),
     )
+    val groupOf = groups.indexOfFirst { g -> g.second.any { it.first == section } }
+        .coerceAtLeast(0)
+    // последний открытый подраздел каждой группы — возврат в группу помнит место
+    val lastSub = remember { mutableStateMapOf<Int, Int>() }
+    LaunchedEffect(section) { lastSub[groupOf] = section }
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -273,25 +333,54 @@ fun PanelHost(vm: EditorViewModel) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            titles.forEachIndexed { i, res ->
-                Chip(stringResource(res), selected = section == i) { section = i }
+            groups.forEachIndexed { gi, (titleRes, subs) ->
+                Chip(stringResource(titleRes), selected = gi == groupOf) {
+                    val target = lastSub[gi] ?: subs.first().first
+                    vm.updatePanelSection(
+                        if (subs.any { it.first == target }) target else subs.first().first,
+                    )
+                }
+            }
+        }
+        val subs = groups[groupOf].second
+        if (subs.size > 1) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                subs.forEach { (idx, res) ->
+                    Chip(stringResource(res), selected = section == idx) {
+                        vm.updatePanelSection(idx)
+                    }
+                }
             }
         }
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 300.dp)
+                .heightIn(max = maxContentHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
         ) {
-            when (section) {
+            Crossfade(targetState = section, label = "section") { sec ->
+            Column(Modifier.fillMaxWidth()) {
+            when (sec) {
                 0 -> TileSection(vm)
                 1 -> PatternSection(vm)
-                2 -> DecorSection(vm)
-                3 -> RoomSection(vm)
-                4 -> CalcSection(vm)
-                5 -> TipsSection(vm)
+                2 -> RoomSection(vm)
+                3 -> FurnitureSection(vm)
+                4 -> SurfacesSection(vm)
+                5 -> CalcSection(vm)
+                6 -> OffcutsSection(vm)
+                7 -> EstimateSection(vm)
+                8 -> TipsSection(vm)
                 else -> ProjectSection(vm)
+            }
+            }
             }
         }
     }
@@ -355,6 +444,21 @@ private val PALETTE = listOf(
 @Composable
 private fun TileSection(vm: EditorViewModel) {
     val context = LocalContext.current
+    if (vm.favTiles.isNotEmpty()) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            vm.favTiles.forEach { t ->
+                Chip(
+                    "${(t.first / 10).toInt()}×${(t.second / 10).toInt()} ★",
+                    vm.uiTile.widthMm == t.first && vm.uiTile.heightMm == t.second &&
+                        vm.uiTile.groutMm == t.third,
+                ) { vm.applyFavTile(t) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.loadTileImage(context, uri)
     }
@@ -364,21 +468,25 @@ private fun TileSection(vm: EditorViewModel) {
     ) {
         PRESETS.forEach { (w, h) ->
             val label = "${(w / 10).toInt()}×${(h / 10).toInt()}"
-            Chip(label, vm.tile.widthMm == w && vm.tile.heightMm == h) {
+            Chip(label, vm.uiTile.widthMm == w && vm.uiTile.heightMm == h) {
                 vm.setTileWidth(w)
                 vm.setTileHeight(h)
             }
         }
+        Chip(
+            stringResource(R.string.fav_save),
+            vm.favTiles.contains(Triple(vm.uiTile.widthMm, vm.uiTile.heightMm, vm.uiTile.groutMm)),
+        ) { vm.toggleFavTile() }
     }
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        NumField(stringResource(R.string.width), vm.tile.widthMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
+        NumField(stringResource(R.string.width), vm.uiTile.widthMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
             vm.setTileWidth(it)
         }
-        NumField(stringResource(R.string.length), vm.tile.heightMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
+        NumField(stringResource(R.string.length), vm.uiTile.heightMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
             vm.setTileHeight(it)
         }
-        NumField(stringResource(R.string.grout), vm.tile.groutMm, stringResource(R.string.unit_mm), 0.0, 30.0) {
+        NumField(stringResource(R.string.grout), vm.uiTile.groutMm, stringResource(R.string.unit_mm), 0.0, 30.0) {
             vm.setGrout(it)
         }
     }
@@ -400,9 +508,139 @@ private fun TileSection(vm: EditorViewModel) {
             )
         }
     }
+    Spacer(Modifier.height(12.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.paint), vm.paintMode) { vm.togglePaintMode() }
+        listOf(0xFF8FB8E8, 0xFFE8DFD2, 0xFF9BC5A6, 0xFFD9A38A, 0xFFB0413E, 0xFF6E7889).forEach { argb ->
+            val c = Color(argb)
+            val on = vm.paintMode && vm.paintColor == argb.toInt()
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(c)
+                    .border(
+                        if (on) 2.dp else 1.dp,
+                        if (on) Acc2 else LineC,
+                        RoundedCornerShape(8.dp),
+                    )
+                    .clickable { vm.updatePaintColor(argb.toInt()) },
+            )
+        }
+        if (vm.tileColors.isNotEmpty()) {
+            Chip(stringResource(R.string.paint_clear), warn = true) { vm.clearTileColors() }
+        }
+    }
+    if (vm.paintMode) {
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(R.string.paint_hint), color = Sub, fontSize = 10.5.sp)
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.brush_size), vm.formatBrush) { vm.toggleFormatBrush() }
+        val brushes = (
+            vm.favTiles.map { Triple(it.first, it.second, it.third) } +
+                listOf(
+                    Triple(300.0, 300.0, vm.uiTile.groutMm),
+                    Triple(300.0, 600.0, vm.uiTile.groutMm),
+                    Triple(200.0, 1200.0, vm.uiTile.groutMm),
+                    Triple(100.0, 100.0, vm.uiTile.groutMm),
+                )
+            ).distinctBy { it.first to it.second }.take(7)
+        brushes.forEach { b ->
+            val on = vm.formatBrush &&
+                vm.brushTile.widthMm == b.first && vm.brushTile.heightMm == b.second
+            Chip("${(b.first / 10).toInt()}×${(b.second / 10).toInt()}", on) {
+                vm.updateBrushTile(TileSpec(b.first, b.second, b.third))
+            }
+        }
+    }
+    if (vm.formatBrush) {
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(R.string.brush_size_hint), color = Sub, fontSize = 10.5.sp)
+    }
+    if (vm.zones.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        Text(stringResource(R.string.zones), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            vm.zones.forEachIndexed { i, z ->
+                Chip(
+                    stringResource(R.string.zone_n, i + 1) + " · " +
+                        z.tile.widthMm.toInt() + "×" + z.tile.heightMm.toInt(),
+                    i == vm.activeZone,
+                ) { vm.updateActiveZone(if (i == vm.activeZone) -1 else i) }
+            }
+            if (vm.activeZone >= 0) {
+                IconChip(BaIcons.Close, stringResource(R.string.del_zone), warn = true) {
+                    vm.deleteActiveZone()
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(R.string.zone_note), color = Sub, fontSize = 10.5.sp)
+    }
+
+    Spacer(Modifier.height(10.dp))
+    var artDialog by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(AccSoft)
+            .border(1.dp, Acc.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            .clickable {
+                artDialog = true
+                if (!vm.showArt) vm.toggleArt()
+            }
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            stringResource(R.string.tile_art_btn),
+            color = Acc2,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    if (artDialog) {
+        AlertDialog(
+            onDismissRequest = { artDialog = false },
+            containerColor = Panel2,
+            title = { Text(stringResource(R.string.tile_art_btn), color = Txt) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.art_dialog_hint), color = Sub, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(10.dp))
+                    ArtAreaEditor(vm)
+                    Spacer(Modifier.height(10.dp))
+                    IconChip(
+                        BaIcons.Camera,
+                        stringResource(if (vm.tileImage != null) R.string.photo_on else R.string.photo),
+                        vm.tileImage != null,
+                    ) {
+                        picker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { artDialog = false }) {
+                    Text(stringResource(R.string.apply), color = Acc2)
+                }
+            },
+        )
+    }
     Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.rotate_tile)) { vm.rotateTile() }
         Chip(stringResource(R.string.variation), vm.variation) { vm.toggleVariation() }
+        Chip(stringResource(R.string.show_art), vm.showArt) { vm.toggleArt() }
         IconChip(
             BaIcons.Camera,
             stringResource(if (vm.tileImage != null) R.string.photo_on else R.string.photo),
@@ -414,10 +652,15 @@ private fun TileSection(vm: EditorViewModel) {
             Chip(stringResource(R.string.clear)) { vm.clearImage() }
         }
     }
+
+    DecorSection(vm)
 }
 
 @Composable
 private fun DecorSection(vm: EditorViewModel) {
+    Spacer(Modifier.height(16.dp))
+    Text(stringResource(R.string.sec_decor), color = Acc2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(10.dp))
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.loadDecorImage(context, uri)
@@ -431,6 +674,9 @@ private fun DecorSection(vm: EditorViewModel) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         IconChip(BaIcons.Camera, stringResource(R.string.decor_photo), vm.decorImage != null) {
             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+        if (vm.decorImage != null) {
+            Chip("✓ " + stringResource(R.string.photo_ok), selected = true) { }
         }
         if (vm.decorImage != null) Chip(stringResource(R.string.clear)) { vm.clearDecorImage() }
     }
@@ -448,7 +694,31 @@ private fun DecorSection(vm: EditorViewModel) {
         ).forEach { (m, res) ->
             Chip(stringResource(res), vm.decor.mode == m) { vm.setDecorMode(m) }
         }
+        Chip(
+            stringResource(R.string.chess),
+            vm.decor.mode == DecorMode.EVERY_N && vm.decor.everyN == 2,
+        ) {
+            vm.setEveryN(2)
+            vm.setDecorMode(DecorMode.EVERY_N)
+        }
     }
+
+    Spacer(Modifier.height(14.dp))
+    Text(stringResource(R.string.panel_size), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(2 to 2, 3 to 2, 3 to 3, 4 to 3, 5 to 1).forEach { (c2, r2) ->
+            Chip(
+                c2.toString() + "×" + r2,
+                vm.decor.panelCols == c2 && vm.decor.panelRows == r2,
+            ) { vm.setPanel(c2, r2) }
+        }
+        if (vm.panelOn) {
+            Chip(stringResource(R.string.panel_off), warn = true) { vm.clearPanel() }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(stringResource(R.string.panel_note), color = Sub, fontSize = 10.5.sp)
 
     Spacer(Modifier.height(14.dp))
     Text(stringResource(R.string.anchor_title), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
@@ -513,6 +783,8 @@ private fun ArtAreaEditor(vm: EditorViewModel) {
             val h = size.height
             if (img != null) {
                 drawImage(img, dstOffset = IntOffset.Zero, dstSize = IntSize(w.toInt(), h.toInt()))
+            } else {
+                drawRect(vm.tileColor, topLeft = Offset(0f, 0f), size = Size(w, h))
             }
             val ax = (art.x * w).toFloat()
             val ay = (art.y * h).toFloat()
@@ -534,19 +806,119 @@ private fun ArtAreaEditor(vm: EditorViewModel) {
             drawLine(Acc2, Offset(cx - 9f * density, cy), Offset(cx + 9f * density, cy), 1.2f * density)
             drawLine(Acc2, Offset(cx, cy - 9f * density), Offset(cx, cy + 9f * density), 1.2f * density)
         }
-        if (img == null) {
-            Text(
-                stringResource(R.string.no_photo),
-                color = Dim,
-                fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
     }
 }
 
 @Composable
 private fun RoomSection(vm: EditorViewModel) {
+    val context = LocalContext.current
+    Text(
+        stringResource(R.string.rooms_title),
+        color = Dim,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        vm.rooms.forEachIndexed { i, r ->
+            Chip(r.name.ifBlank { stringResource(R.string.room_n, i + 1) }, i == vm.activeRoom) {
+                vm.switchRoom(i)
+            }
+        }
+        IconChip(BaIcons.Plus, stringResource(R.string.add_room)) { vm.addRoom() }
+        if (vm.rooms.size > 1) {
+            IconChip(BaIcons.Close, stringResource(R.string.del_room), warn = true) {
+                vm.deleteActiveRoom()
+            }
+        }
+    }
+    if (vm.rooms.size > 1) {
+        Spacer(Modifier.height(10.dp))
+        Text(stringResource(R.string.dock), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(stringResource(R.string.dock_left)) { vm.dockActiveRoom(0) }
+            Chip(stringResource(R.string.dock_right)) { vm.dockActiveRoom(1) }
+            Chip(stringResource(R.string.dock_up)) { vm.dockActiveRoom(2) }
+            Chip(stringResource(R.string.dock_down)) { vm.dockActiveRoom(3) }
+        }
+    }
+
+    Spacer(Modifier.height(14.dp))
+    val planPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.loadPlanImage(context, uri)
+    }
+    Text(stringResource(R.string.plan_under), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        IconChip(BaIcons.Camera, stringResource(R.string.plan_photo), vm.planImage != null) {
+            planPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+        if (vm.planImage != null) {
+            Chip(stringResource(R.string.plan_trace), vm.traceMode) { vm.toggleTraceMode() }
+            Chip(
+                if (vm.ocrNumbers.isEmpty()) {
+                    stringResource(R.string.ocr_read)
+                } else {
+                    stringResource(R.string.ocr_found, vm.ocrNumbers.size)
+                },
+                vm.ocrNumbers.isNotEmpty(),
+            ) { vm.runPlanOcr() }
+            Chip(stringResource(R.string.plan_calib), vm.calibMode) { vm.startCalibration() }
+            Chip(stringResource(R.string.plan_move), vm.planMove) { vm.togglePlanMove() }
+            Chip(stringResource(R.string.plan_clear), warn = true) { vm.clearPlanImage() }
+        }
+    }
+    if (vm.planImage != null) {
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(0.25f, 0.45f, 0.7f).forEach { a ->
+                Chip(
+                    ((a * 100).toInt()).toString() + "%",
+                    abs(vm.planAlpha - a) < 0.01f,
+                ) { vm.updatePlanAlpha(a) }
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        stringResource(
+            when {
+                vm.calibMode -> R.string.plan_calib_hint
+                vm.traceMode -> R.string.plan_trace_hint
+                else -> R.string.plan_note
+            },
+        ),
+        color = Sub,
+        fontSize = 10.5.sp,
+    )
+
+    Spacer(Modifier.height(14.dp))
+    Text(stringResource(R.string.wall_thick), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
+            Chip(
+                (t2 * 100).toInt().toString(),
+                abs(vm.wallThicknessM - t2) < 0.005,
+            ) { vm.updateWallThickness(t2) }
+        }
+    }
+
+    Spacer(Modifier.height(14.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.draw_points), vm.drawMode) { vm.startDraw() }
+        if (vm.room.points.size > 4) {
+            Chip(stringResource(R.string.simplify)) { vm.simplifyRoom() }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
     var w by rememberSaveable { mutableStateOf(4.0) }
     var h by rememberSaveable { mutableStateOf(3.0) }
     Text(stringResource(R.string.rect), color = Sub, fontSize = 11.5.sp)
@@ -585,8 +957,482 @@ private fun RoomSection(vm: EditorViewModel) {
     }
 }
 
+private data class FurnPreset(
+    val res: Int,
+    val w: Double,
+    val h: Double,
+    val heightM: Double,
+    val kind: String,
+)
+
+private val FURN_PRESETS = listOf(
+    FurnPreset(R.string.furn_kitchen, 3.0, 0.6, 0.9, "kitchen"),
+    FurnPreset(R.string.furn_bath, 1.7, 0.7, 0.6, "bath"),
+    FurnPreset(R.string.furn_wc, 0.4, 0.7, 0.8, "wc"),
+    FurnPreset(R.string.furn_washer, 0.6, 0.6, 0.85, "washer"),
+    FurnPreset(R.string.furn_cabinet, 1.2, 0.5, 0.75, "cabinet"),
+    FurnPreset(R.string.furn_fridge, 0.6, 0.7, 1.85, "fridge"),
+    FurnPreset(R.string.furn_wardrobe, 1.2, 0.6, 2.1, "wardrobe"),
+    FurnPreset(R.string.furn_table, 1.2, 0.8, 0.75, "table"),
+    FurnPreset(R.string.furn_chair, 0.45, 0.45, 0.85, "chair"),
+    FurnPreset(R.string.furn_custom, 1.0, 0.6, 0.85, "box"),
+)
+
+@Composable
+private fun FurnitureSection(vm: EditorViewModel) {
+    var addOpen by remember { mutableStateOf(false) }
+    Box {
+        IconChip(BaIcons.Plus, stringResource(R.string.add_furn), selected = true) { addOpen = true }
+        DropdownMenu(
+            expanded = addOpen,
+            onDismissRequest = { addOpen = false },
+            modifier = Modifier.background(Panel2),
+        ) {
+            FURN_PRESETS.forEach { fp ->
+                val name = stringResource(fp.res)
+                DropdownMenuItem(
+                    text = { Text(name, color = Txt, fontSize = 13.sp) },
+                    onClick = {
+                        addOpen = false
+                        vm.addFurniture(name, fp.w, fp.h, fp.heightM, fp.kind)
+                    },
+                )
+            }
+        }
+    }
+
+    val sel = vm.selection
+    if (sel is Selection.Furn && sel.i in vm.furniture.indices) {
+        val f = vm.furniture[sel.i]
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField(stringResource(R.string.width), f.w, stringResource(R.string.unit_m), 0.2, 10.0) {
+                vm.setSelectedFurnW(it)
+            }
+            NumField(stringResource(R.string.length), f.h, stringResource(R.string.unit_m), 0.2, 10.0) {
+                vm.setSelectedFurnH(it)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Chip(stringResource(R.string.rotation)) { vm.rotateSelectedFurn() }
+            Chip(stringResource(R.string.under_tile), f.coversFinish) { vm.toggleSelectedFurnCover() }
+            IconChip(BaIcons.Close, stringResource(R.string.del_furn), warn = true) { vm.deleteSelectedFurniture() }
+        }
+    }
+
+    if (vm.furniture.isNotEmpty()) {
+        val cov = vm.coverage
+        Spacer(Modifier.height(12.dp))
+        if (cov.decorTiles > 0) {
+            Line(
+                stringResource(R.string.decor_covered),
+                "${cov.coveredPct}%",
+                if (cov.decorHidden) Warn else Good,
+            )
+        }
+        Line(stringResource(R.string.hidden_tiles), cov.hiddenTiles.toString())
+        if (cov.savedTiles > 0) Line(stringResource(R.string.saved_tiles), "−${cov.savedTiles}", Good)
+    }
+    Spacer(Modifier.height(10.dp))
+    Text(stringResource(R.string.hint_room), color = Dim, fontSize = 10.5.sp)
+}
+
+@Composable
+private fun OffcutsSection(vm: EditorViewModel) {
+
+    val lay = vm.layout
+    val tileAreaM2o = vm.tile.widthMm * vm.tile.heightMm / 1_000_000.0
+    val usedM2 = lay.cutPieces.sumOf { it.count * it.aCm * it.bCm } / 10_000.0
+    val cutTilesM2 = lay.cutCount * tileAreaM2o
+    val wastePct = if (cutTilesM2 > 0) ((cutTilesM2 - usedM2) / cutTilesM2 * 100).coerceIn(0.0, 100.0) else 0.0
+    val cutPctO = if (lay.totalCount > 0) lay.cutCount * 100.0 / lay.totalCount else 0.0
+    Text(stringResource(R.string.piece_note), color = Sub, fontSize = 10.5.sp)
+    Spacer(Modifier.height(8.dp))
+
+    // парование резов: две подрезки из одной плитки — покупать меньше
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Chip(stringResource(R.string.pair_cuts), selected = vm.pairCuts) { vm.togglePairCuts() }
+        if (vm.pairCuts && vm.cutPairs.saved > 0) {
+            Text(
+                stringResource(R.string.pair_saving) + ": −" + vm.cutPairs.saved + " " +
+                    stringResource(R.string.pcs),
+                color = Good,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+    if (vm.pairCuts && vm.cutPairs.bins.any { it.nums.size >= 2 }) {
+        var pairsOpen by remember { mutableStateOf(false) }
+        Spacer(Modifier.height(6.dp))
+        Chip(
+            if (pairsOpen) stringResource(R.string.hide) else stringResource(R.string.pair_show),
+            selected = pairsOpen,
+        ) { pairsOpen = !pairsOpen }
+        if (pairsOpen) {
+            vm.cutPairs.bins.filter { it.nums.size >= 2 }.forEach { bin ->
+                Text(
+                    bin.nums.joinToString(" + ") { "№$it" },
+                    color = Sub,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Line(
+        stringResource(R.string.cut_tiles),
+        lay.cutCount.toString() + "  (" + String.format(Locale.getDefault(), "%.0f", cutPctO) + "%)",
+        Warn,
+    )
+    Line(
+        stringResource(R.string.waste_share),
+        String.format(Locale.getDefault(), "%.2f", (cutTilesM2 - usedM2).coerceAtLeast(0.0)) + " " +
+            stringResource(R.string.unit_m2) + "  (" +
+            String.format(Locale.getDefault(), "%.0f", wastePct) + "%)",
+        Warn,
+    )
+    Spacer(Modifier.height(10.dp))
+    val l = vm.layout
+    val tileAreaCm = vm.tile.widthMm * vm.tile.heightMm / 100.0  // см²
+    var usable = 0
+    var waste = 0
+    var offcutArea = 0.0
+    l.cutPieces.forEach { p ->
+        if (minOf(p.aCm, p.bCm) >= 10.0) usable += p.count else waste += p.count
+        offcutArea += p.count * (tileAreaCm - p.aCm * p.bCm).coerceAtLeast(0.0)
+    }
+    Line(stringResource(R.string.offcut_usable), usable.toString(), Good)
+    Line(stringResource(R.string.offcut_waste), waste.toString(), Warn)
+    Line(
+        stringResource(R.string.offcut_area),
+        String.format(Locale.getDefault(), "%.2f", offcutArea / 10000.0) + " " + stringResource(R.string.unit_m2),
+    )
+    Spacer(Modifier.height(10.dp))
+    if (l.cutPieces.isEmpty()) {
+        Text(stringResource(R.string.no_cuts), color = Sub, fontSize = 12.sp)
+    } else {
+        l.cutPieces.take(24).forEach { p -> OffcutRow(p, vm.tile.groutMm, tileAreaCm, selectedRow = vm.highlightCut == (p.aCm to p.bCm), onRowClick = { vm.toggleHighlightCut(p.aCm, p.bCm) }) }
+        Spacer(Modifier.height(8.dp))
+        Text(stringResource(R.string.pieces_note), color = Dim, fontSize = 10.5.sp)
+    }
+}
+
+@Composable
+private fun OffcutRow(
+    p: CutPiece,
+    grout: Double,
+    tileAreaCm: Double,
+    selectedRow: Boolean,
+    onRowClick: () -> Unit,
+) {
+    val reusable = minOf(p.aCm, p.bCm) >= 10.0
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (selectedRow) Good.copy(alpha = 0.14f) else Panel2)
+            .border(
+                if (selectedRow) 1.6.dp else 1.dp,
+                when {
+                    selectedRow -> Good
+                    reusable -> Good.copy(alpha = 0.35f)
+                    else -> LineC
+                },
+                RoundedCornerShape(11.dp),
+            )
+            .clickable { onRowClick() }
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(width = 26.dp, height = 18.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (reusable) Good.copy(alpha = 0.25f) else Warn.copy(alpha = 0.18f)),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                String.format(Locale.getDefault(), "%.1f", p.aCm) + " × " +
+                    String.format(Locale.getDefault(), "%.1f", p.bCm) + " " +
+                    stringResource(R.string.unit_cm) +
+                    if (tileAreaCm > 0) {
+                        "  (" + String.format(
+                            Locale.getDefault(),
+                            "%.0f",
+                            (p.aCm * p.bCm / tileAreaCm * 100).coerceIn(0.0, 100.0),
+                        ) + "%)"
+                    } else {
+                        ""
+                    },
+                color = Txt,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            p.count.toString() + " " + stringResource(R.string.pcs),
+            color = if (reusable) Good else Sub,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SurfacesSection(vm: EditorViewModel) {
+    val model = vm.model
+    val active = vm.activeSurface
+    val m2 = stringResource(R.string.unit_m2)
+
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.surf_floor), active == "floor") { vm.selectSurface("floor") }
+        model.walls.forEachIndexed { i, w ->
+            Chip(stringResource(R.string.surf_wall) + " ${i + 1}", active == w.id) { vm.selectSurface(w.id) }
+        }
+        Chip(stringResource(R.string.surf_ceiling), active == "ceiling") { vm.selectSurface("ceiling") }
+    }
+
+    if (active.startsWith("wall-")) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            stringResource(R.string.wall_thick_this),
+            color = Dim,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val own = vm.wallThickness[active]
+            Chip(stringResource(R.string.same_as_all), own == null) {
+                vm.updateWallThicknessOf(active, null)
+            }
+            listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
+                Chip(
+                    (t2 * 100).toInt().toString(),
+                    own != null && abs(own - t2) < 0.005,
+                ) { vm.updateWallThicknessOf(active, t2) }
+            }
+        }
+    }
+
+    val surface = model.surfaces.firstOrNull { it.id == active } ?: return
+    val finish = vm.finishOf(active)
+    val area = vm.surfaceAreaM2(active)
+
+    Spacer(Modifier.height(12.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            Finish.TILE to R.string.finish_tile,
+            Finish.WALLPAPER to R.string.finish_wallpaper,
+            Finish.PAINT to R.string.finish_paint,
+            Finish.NONE to R.string.finish_none,
+        ).forEach { (f, res) ->
+            Chip(stringResource(res), finish == f) { vm.setFinish(active, f) }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Line(stringResource(R.string.net_area), String.format(Locale.getDefault(), "%.2f", area) + " " + m2)
+
+    when (finish) {
+        Finish.TILE -> {
+            val lay = vm.surfaceLayout(active)
+            Line(stringResource(R.string.full_tiles), lay.fullCount.toString())
+            Line(stringResource(R.string.cut_tiles), lay.cutCount.toString(), Warn)
+            Line(
+                stringResource(R.string.buy),
+                ceil(lay.totalCount * (1 + vm.reservePct / 100.0)).toInt().toString() + " " + stringResource(R.string.pcs),
+                Acc2,
+            )
+            Line(
+                stringResource(R.string.adhesive),
+                String.format(Locale.getDefault(), "%.1f", MaterialCalc.tileAdhesiveKg(area, vm.tile)),
+            )
+        }
+
+        Finish.WALLPAPER -> {
+            val wide = if (surface.kind == SurfaceKind.WALL) {
+                model.walls.first { it.id == active }.lengthM
+            } else {
+                sqrt(area.coerceAtLeast(0.01))
+            }
+            val high = if (surface.kind == SurfaceKind.WALL) vm.wallHeightM else sqrt(area.coerceAtLeast(0.01))
+            val wp = MaterialCalc.wallpaper(wide, high)
+            Line(stringResource(R.string.rolls), wp.rolls.toString(), Acc2)
+            Line(stringResource(R.string.strips), wp.strips.toString())
+            Line(
+                stringResource(R.string.repeat),
+                String.format(Locale.getDefault(), "%.2f", wp.stripLenM) + " " + stringResource(R.string.unit_m),
+            )
+        }
+
+        Finish.PAINT -> {
+            Line(stringResource(R.string.coats), "2")
+            Line(
+                stringResource(R.string.liters),
+                String.format(Locale.getDefault(), "%.1f", MaterialCalc.paintLiters(area, 2)),
+                Acc2,
+            )
+        }
+
+        Finish.NONE -> Unit
+    }
+
+    if (surface.kind == SurfaceKind.WALL) {
+        Spacer(Modifier.height(14.dp))
+        Text(stringResource(R.string.openings), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            IconChip(BaIcons.Plus, stringResource(R.string.opening_window)) {
+                vm.addOpening(active, 1.4, 1.4, 0.9, OPENING_WINDOW)
+            }
+            IconChip(BaIcons.Plus, stringResource(R.string.opening_door)) {
+                vm.addOpening(active, 0.9, 2.05, 0.0, OPENING_DOOR)
+            }
+            IconChip(BaIcons.Plus, stringResource(R.string.opening_balcony)) {
+                vm.addOpening(active, 0.8, 2.1, 0.0, OPENING_BALCONY)
+            }
+            IconChip(BaIcons.Plus, stringResource(R.string.opening_entry)) {
+                vm.addOpening(active, 1.0, 2.05, 0.0, OPENING_ENTRY)
+            }
+            IconChip(BaIcons.Plus, stringResource(R.string.opening_passage)) {
+                vm.addOpening(active, 1.2, 2.1, 0.0, OPENING_PASSAGE)
+            }
+        }
+        // раскрытый редактор проёма: тип, отступ от начала стены, размеры
+        var openEdit by remember(active) { mutableStateOf(-1) }
+        val kindNames = listOf(
+            stringResource(R.string.kind_window),
+            stringResource(R.string.kind_door),
+            stringResource(R.string.kind_balcony),
+            stringResource(R.string.kind_entry),
+            stringResource(R.string.kind_passage),
+        )
+        val wallLen = vm.model.walls.firstOrNull { it.id == active }?.lengthM ?: 99.0
+        vm.openingsOf(active).forEachIndexed { i, o ->
+            val kind = vm.openingKindsOf(active).getOrNull(i) ?: OPENING_WINDOW
+            Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        kindNames.getOrElse(kind) { kindNames[0] } + " · " +
+                            String.format(Locale.getDefault(), "%.2f × %.2f", o.w, o.h) +
+                            " " + stringResource(R.string.unit_m) + " · ⇤ " +
+                            String.format(Locale.getDefault(), "%.2f", o.x),
+                        color = Sub,
+                        fontSize = 12.5.sp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { openEdit = if (openEdit == i) -1 else i },
+                    )
+                    Chip(
+                        if (openEdit == i) stringResource(R.string.hide) else stringResource(R.string.edit),
+                        selected = openEdit == i,
+                    ) { openEdit = if (openEdit == i) -1 else i }
+                    Spacer(Modifier.width(6.dp))
+                    IconChip(BaIcons.Close, "", warn = true) {
+                        if (openEdit == i) openEdit = -1
+                        vm.deleteOpening(active, i)
+                    }
+                }
+                if (openEdit == i) {
+                    Spacer(Modifier.height(7.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        kindNames.forEachIndexed { k, name ->
+                            Chip(name, selected = kind == k) { vm.setOpeningKind(active, i, k) }
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        NumField(
+                            stringResource(R.string.opening_offset), o.x,
+                            stringResource(R.string.unit_m), 0.0, wallLen,
+                        ) { vm.updateOpening(active, i, x = it) }
+                        NumField(
+                            stringResource(R.string.width), o.w,
+                            stringResource(R.string.unit_m), 0.1, wallLen,
+                        ) { vm.updateOpening(active, i, w = it) }
+                        NumField(
+                            stringResource(R.string.height), o.h,
+                            stringResource(R.string.unit_m), 0.1, vm.wallHeightM,
+                        ) { vm.updateOpening(active, i, h = it) }
+                        if (kind == OPENING_WINDOW) {
+                            NumField(
+                                stringResource(R.string.opening_sill), o.y,
+                                stringResource(R.string.unit_m), 0.0, vm.wallHeightM,
+                            ) { vm.updateOpening(active, i, sill = it) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+    Text(stringResource(R.string.total_materials), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    var tilesTotal = 0
+    var rollsTotal = 0
+    var litersTotal = 0.0
+    model.surfaces.forEach { su ->
+        val a = vm.surfaceAreaM2(su.id)
+        when (vm.finishOf(su.id)) {
+            Finish.TILE -> tilesTotal += vm.surfaceLayout(su.id).totalCount
+            Finish.WALLPAPER -> {
+                val w = if (su.kind == SurfaceKind.WALL) model.walls.first { it.id == su.id }.lengthM else sqrt(a.coerceAtLeast(0.01))
+                val h = if (su.kind == SurfaceKind.WALL) vm.wallHeightM else sqrt(a.coerceAtLeast(0.01))
+                rollsTotal += MaterialCalc.wallpaper(w, h).rolls
+            }
+            Finish.PAINT -> litersTotal += MaterialCalc.paintLiters(a, 2)
+            Finish.NONE -> Unit
+        }
+    }
+    if (tilesTotal > 0) Line(
+        stringResource(R.string.total_tiles),
+        ceil(tilesTotal * (1 + vm.reservePct / 100.0)).toInt().toString() + " " + stringResource(R.string.pcs),
+    )
+    if (rollsTotal > 0) Line(stringResource(R.string.rolls), rollsTotal.toString())
+    if (litersTotal > 0) Line(
+        stringResource(R.string.liters),
+        String.format(Locale.getDefault(), "%.1f", litersTotal),
+    )
+}
+
 @Composable
 private fun CalcSection(vm: EditorViewModel) {
+    val formats = vm.countsByFormat()
+    if (formats.size > 1) {
+        Text(stringResource(R.string.by_format), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        formats.forEach { (fmt, cnt) ->
+            Line(fmt, cnt.toString() + " " + stringResource(R.string.pcs), Acc2)
+        }
+        Spacer(Modifier.height(12.dp))
+    }
     val l = vm.layout
     Line(stringResource(R.string.area), String.format(Locale.getDefault(), "%.2f", l.areaM2) + " " + stringResource(R.string.unit_m2))
     Line(
@@ -594,8 +1440,118 @@ private fun CalcSection(vm: EditorViewModel) {
         String.format(Locale.getDefault(), "%.2f", polygonPerimeter(vm.room.points)) + " " + stringResource(R.string.unit_m),
     )
     Line(stringResource(R.string.full_tiles), l.fullCount.toString())
-    Line(stringResource(R.string.cut_tiles), l.cutCount.toString(), Warn)
+    val cutPct = if (l.totalCount > 0) l.cutCount * 100.0 / l.totalCount else 0.0
+    Line(
+        stringResource(R.string.cut_tiles),
+        l.cutCount.toString() + "  (" + String.format(Locale.getDefault(), "%.0f", cutPct) + "% " +
+            stringResource(R.string.cut_share) + ")",
+        Warn,
+    )
     Line(stringResource(R.string.total_tiles), l.totalCount.toString())
+
+    Spacer(Modifier.height(10.dp))
+    val glue = MaterialCalc.tileAdhesiveKg(l.areaM2, vm.tile)
+    val groutKg = MaterialCalc.groutKg(l.areaM2, vm.tile)
+    Line(stringResource(R.string.need_glue), String.format(Locale.getDefault(), "%.0f", glue) + " " + stringResource(R.string.unit_kg))
+    Line(stringResource(R.string.need_grout), String.format(Locale.getDefault(), "%.1f", groutKg) + " " + stringResource(R.string.unit_kg))
+
+    // ---------- плинтус: сегменты, распил по хлыстам, советы по остаткам ----------
+    Spacer(Modifier.height(12.dp))
+    Text(
+        stringResource(R.string.need_plinth),
+        color = Dim,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Spacer(Modifier.height(7.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.skirt_bars_mode), vm.skirtMode == 0) { vm.switchSkirtMode(0) }
+        Chip(stringResource(R.string.skirt_tiles_mode), vm.skirtMode == 1) { vm.switchSkirtMode(1) }
+    }
+    Spacer(Modifier.height(7.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (vm.skirtMode == 0) {
+            NumField(
+                stringResource(R.string.skirt_bar_len), vm.skirtBarLenM,
+                stringResource(R.string.unit_m), 0.5, 6.0,
+            ) { vm.setSkirtBarLen(it) }
+        } else {
+            NumField(
+                stringResource(R.string.skirt_height), vm.skirtHeightMm,
+                stringResource(R.string.unit_mm), 30.0, 200.0,
+            ) { vm.setSkirtHeight(it) }
+        }
+    }
+    Spacer(Modifier.height(5.dp))
+    val sk = vm.skirtPlan
+    Line(
+        stringResource(R.string.skirt_total),
+        String.format(Locale.getDefault(), "%.1f", sk.totalM) + " " + stringResource(R.string.unit_m) +
+            "  ·  " + sk.segments.size + " " + stringResource(R.string.skirt_segs),
+    )
+    if (vm.skirtMode == 0) {
+        Line(
+            stringResource(R.string.skirt_need_bars),
+            sk.bars.size.toString() + " × " +
+                String.format(Locale.getDefault(), "%.1f", sk.barLenM) + " " + stringResource(R.string.unit_m) +
+                (if (sk.joints > 0) "  ·  " + sk.joints + " " + stringResource(R.string.skirt_joints) else ""),
+        )
+    } else {
+        val tilesN = kotlin.math.ceil(sk.bars.size.toDouble() / vm.skirtStripsPerTile).toInt()
+        Line(
+            stringResource(R.string.skirt_need_strips),
+            sk.bars.size.toString() + "  ·  " + tilesN + " " + stringResource(R.string.skirt_tiles_cnt) +
+                " (" + vm.skirtStripsPerTile + " " + stringResource(R.string.skirt_per_tile) + ")",
+        )
+        val offc = vm.skirtFromOffcuts
+        if (offc.first > 0) {
+            Line(
+                stringResource(R.string.skirt_offcut_tip),
+                "≈" + offc.first + "  ·  " +
+                    String.format(Locale.getDefault(), "%.1f", offc.second) + " " + stringResource(R.string.unit_m),
+                Good,
+            )
+        }
+    }
+    var skirtOpen by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(5.dp))
+    Chip(
+        if (skirtOpen) stringResource(R.string.hide) else stringResource(R.string.skirt_plan_btn),
+        selected = skirtOpen,
+    ) { skirtOpen = !skirtOpen }
+    if (skirtOpen) {
+        Spacer(Modifier.height(6.dp))
+        // строки — заранее: joinToString не inline, @Composable внутри неё нельзя
+        val wallShort = stringResource(R.string.skirt_wall_short)
+        val restLbl = stringResource(R.string.skirt_rest)
+        sk.bars.forEachIndexed { bi, bar ->
+            val parts = bar.cuts.joinToString(" + ") { c ->
+                val seg = sk.segments.getOrNull(c.segment)
+                val wallNo = (seg?.wall ?: 0) + 1
+                val suffix = if (seg != null && seg.partsOnWall > 1) {
+                    "·" + ('a' + seg.partOfWall)
+                } else {
+                    ""
+                }
+                String.format(Locale.getDefault(), "%.2f", c.lenM) +
+                    " → " + wallShort + wallNo + suffix
+            }
+            Text(
+                "№" + (bi + 1) + ":  " + parts +
+                    (
+                        if (bar.restM > 0.02) {
+                            "   ·  " + restLbl + " " +
+                                String.format(Locale.getDefault(), "%.2f", bar.restM)
+                        } else {
+                            ""
+                        }
+                        ),
+                color = Sub,
+                fontSize = 11.5.sp,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.reserve), color = Sub, fontSize = 12.sp)
@@ -661,6 +1617,125 @@ private fun CalcSection(vm: EditorViewModel) {
 
     Spacer(Modifier.height(10.dp))
     Text(stringResource(R.string.disclaimer), color = Sub, fontSize = 10.5.sp)
+}
+
+/** Денежный формат: крупные суммы без копеек. */
+fun money(v: Double, cur: String): String =
+    String.format(Locale.getDefault(), if (v >= 100) "%.0f" else "%.2f", v) + " " + cur
+
+@Composable
+fun surfaceTitle(id: String): String = when (id) {
+    "floor" -> stringResource(R.string.surf_floor)
+    "ceiling" -> stringResource(R.string.surf_ceiling)
+    else -> stringResource(R.string.surf_wall) + " " + id.removePrefix("wall-")
+}
+
+@Composable
+fun finishTitle(f: Finish): String = stringResource(
+    when (f) {
+        Finish.TILE -> R.string.finish_tile
+        Finish.WALLPAPER -> R.string.finish_wallpaper
+        Finish.PAINT -> R.string.finish_paint
+        Finish.NONE -> R.string.finish_none
+    },
+)
+
+@Composable
+private fun EstimateSection(vm: EditorViewModel) {
+    val p = vm.prices
+    val cur = p.currency
+
+    if (vm.rooms.size > 1) {
+        val apt = vm.apartmentPieces()
+        Line(
+            stringResource(R.string.apt_total) + " · " + vm.rooms.size,
+            apt.first.toString() + " " + stringResource(R.string.pcs) +
+                if (apt.second > 0) " ≈ " + money(apt.second, cur) else "",
+            Acc2,
+        )
+        Spacer(Modifier.height(10.dp))
+    }
+
+    Text(stringResource(R.string.currency), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("₪", "$", "€", "₽").forEach { c ->
+            Chip(c, cur == c) { vm.updatePrices { it.copy(currency = c) } }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        NumField(stringResource(R.string.price_tile_m2), p.tileM2, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(tileM2 = v) }
+        }
+        NumField(stringResource(R.string.price_tile_pc), p.tilePc, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(tilePc = v) }
+        }
+        NumField(stringResource(R.string.price_adhesive_kg), p.adhesiveKg, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(adhesiveKg = v) }
+        }
+        NumField(stringResource(R.string.price_roll), p.roll, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(roll = v) }
+        }
+        NumField(stringResource(R.string.price_paint_l), p.paintL, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(paintL = v) }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        NumField(stringResource(R.string.work_tile_m2), p.workTileM2, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(workTileM2 = v) }
+        }
+        NumField(stringResource(R.string.work_wall_m2), p.workWallM2, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(workWallM2 = v) }
+        }
+        NumField(stringResource(R.string.work_paint_m2), p.workPaintM2, cur, 0.0, 999999.0, 104.dp) { v ->
+            vm.updatePrices { it.copy(workPaintM2 = v) }
+        }
+    }
+
+    Spacer(Modifier.height(6.dp))
+    Text(stringResource(R.string.price_unit_note), color = Dim, fontSize = 10.sp)
+
+    Spacer(Modifier.height(14.dp))
+    val costs = vm.surfaceCosts()
+    val visible = costs.filter { it.materials + it.work > 0 }
+    visible.forEach { sc ->
+        Line(
+            surfaceTitle(sc.id) + " · " + finishTitle(sc.finish),
+            money(sc.materials + sc.work, cur),
+        )
+    }
+    // обрезки: площадь и деньги по цене плитки
+    val tileAreaCm = vm.tile.widthMm * vm.tile.heightMm / 100.0
+    var offcutCm2 = 0.0
+    vm.layout.cutPieces.forEach { pc ->
+        offcutCm2 += pc.count * (tileAreaCm - pc.aCm * pc.bCm).coerceAtLeast(0.0)
+    }
+    val offcutM2 = offcutCm2 / 10000.0
+    val tileAreaM2p = vm.tile.widthMm * vm.tile.heightMm / 1_000_000.0
+    val tileCostPerM2 = if (p.tilePc > 0) p.tilePc / tileAreaM2p else p.tileM2
+    if (offcutM2 > 0.005) {
+        Line(
+            stringResource(R.string.offcut_area),
+            String.format(Locale.getDefault(), "%.2f", offcutM2) + " " + stringResource(R.string.unit_m2),
+        )
+        if (tileCostPerM2 > 0) {
+            Line(stringResource(R.string.offcut_cost), money(offcutM2 * tileCostPerM2, cur), Warn)
+        }
+    }
+
+    val matSum = costs.sumOf { it.materials }
+    val workSum = costs.sumOf { it.work }
+    if (matSum + workSum > 0) {
+        Spacer(Modifier.height(8.dp))
+        Line(stringResource(R.string.materials_cost), money(matSum, cur))
+        Line(stringResource(R.string.work_cost), money(workSum, cur))
+        Line(stringResource(R.string.grand_total), money(matSum + workSum, cur), Acc2)
+    } else {
+        Text(stringResource(R.string.prices_hint), color = Dim, fontSize = 10.5.sp)
+    }
 }
 
 @Composable
@@ -731,6 +1806,55 @@ private fun delta(d: Int): String = when {
 
 @Composable
 private fun ProjectSection(vm: EditorViewModel) {
+    Text(stringResource(R.string.autosave_note), color = Sub, fontSize = 10.5.sp)
+    Spacer(Modifier.height(10.dp))
+    var confirmNew by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip(stringResource(R.string.new_project)) { confirmNew = true }
+        Chip(stringResource(R.string.reset_all), warn = true) { confirmReset = true }
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            containerColor = Panel2,
+            title = { Text(stringResource(R.string.reset_all), color = Txt) },
+            text = {
+                Text(stringResource(R.string.reset_all_confirm), color = Sub, fontSize = 12.5.sp)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    vm.resetPlacements()
+                }) { Text(stringResource(R.string.apply), color = Acc2) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) {
+                    Text(stringResource(R.string.cancel), color = Sub)
+                }
+            },
+        )
+    }
+    if (confirmNew) {
+        AlertDialog(
+            onDismissRequest = { confirmNew = false },
+            containerColor = Panel2,
+            title = { Text(stringResource(R.string.new_project), color = Txt) },
+            text = { Text(stringResource(R.string.new_confirm), color = Sub, fontSize = 12.5.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmNew = false
+                    vm.newProject()
+                }) { Text(stringResource(R.string.apply), color = Acc2) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmNew = false }) {
+                    Text(stringResource(R.string.cancel), color = Sub)
+                }
+            },
+        )
+    }
+    Spacer(Modifier.height(12.dp))
     OutlinedTextField(
         value = vm.projectName,
         onValueChange = { vm.projectName = it },

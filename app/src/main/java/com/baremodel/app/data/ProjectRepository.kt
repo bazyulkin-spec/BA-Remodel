@@ -20,7 +20,7 @@ class ProjectRepository(context: Context) {
     }
 
     fun list(): List<ProjectMeta> = runCatching {
-        (dir.listFiles { f -> f.extension == "json" } ?: emptyArray())
+        (dir.listFiles { f -> f.extension == "json" && f.name != "__autosave.json" } ?: emptyArray())
             .mapNotNull { f ->
                 runCatching { json.decodeFromString(ProjectDto.serializer(), f.readText()) }
                     .getOrNull()
@@ -37,6 +37,18 @@ class ProjectRepository(context: Context) {
         val f = fileFor(name)
         if (f.exists()) json.decodeFromString(ProjectDto.serializer(), f.readText()) else null
     }.getOrNull()
+
+    private val autoFile get() = File(dir, "__autosave.json")
+
+    /** Черновик: пишется автоматически, восстанавливается при старте. */
+    fun saveAutosave(dto: ProjectDto) {
+        runCatching { autoFile.writeText(json.encodeToString(ProjectDto.serializer(), dto)) }
+    }
+
+    fun loadAutosave(): ProjectDto? =
+        runCatching {
+            if (autoFile.exists()) json.decodeFromString(ProjectDto.serializer(), autoFile.readText()) else null
+        }.getOrNull()
 
     fun delete(name: String) {
         runCatching { fileFor(name).delete() }
