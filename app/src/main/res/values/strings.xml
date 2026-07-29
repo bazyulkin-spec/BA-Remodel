@@ -375,4 +375,5 @@
     <string name="works_hint">Tap a status to cycle: plan → doing → done. Saved with the project.</string>
     <string name="liters_short">L</string>
     <string name="rolls_short">rolls</string>
+    <string name="share_plan">Share plan (PNG)</string>
 </resources>

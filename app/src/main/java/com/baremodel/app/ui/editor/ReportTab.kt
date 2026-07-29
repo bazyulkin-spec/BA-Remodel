@@ -176,6 +176,10 @@ fun ReportTab(vm: EditorViewModel) {
             }
         }
         Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip(stringResource(R.string.share_plan)) { PlanShare.share(context, vm) }
+        }
+        Spacer(Modifier.height(10.dp))
 
         // Действие — сразу под главным числом
         Box(

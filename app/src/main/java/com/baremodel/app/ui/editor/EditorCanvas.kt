@@ -56,10 +56,10 @@ import kotlin.math.sin
 @Composable
 fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
     val unitM = stringResource(R.string.unit_m)
-    val kindShort = listOf(
+    val kindWords = listOf(
         R.string.kind_window, R.string.kind_door, R.string.kind_balcony,
         R.string.kind_entry, R.string.kind_passage,
-    ).map { stringResource(it).firstOrNull()?.uppercase() ?: "?" }
+    ).map { stringResource(it) }
     val wmText = stringResource(R.string.wm_brand)
     val inactiveLayouts = remember(vm.rooms, vm.activeRoom) {
         vm.rooms.mapIndexed { i, r ->
@@ -901,32 +901,38 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                         if (dl < 1e-3) return@forEachIndexed
                         val ndx = dxs / dl
                         val ndy = dys / dl
-                        val bx = gx + ndx * 17f * d
-                        val by = gy + ndy * 17f * d
+                        val bx = gx + ndx * 21f * d
+                        val by = gy + ndy * 21f * d
                         drawLine(
                             tone.copy(alpha = 0.85f),
                             Offset(gx, gy),
                             Offset(bx, by),
                             strokeWidth = 1.6f * d,
                         )
-                        drawCircle(tone, radius = 9f * d, center = Offset(bx, by))
-                        drawCircle(
-                            Color(0xFF0B1220),
-                            radius = 9f * d,
-                            center = Offset(bx, by),
-                            style = Stroke(1.2f * d),
-                        )
+                        // слово вместо буквы: «Дверь», «Балкон», «Вход» — понятно
+                        // любому, кому скинут схему
                         drawIntoCanvas { canvas ->
                             val tp = android.graphics.Paint(labelPaint)
-                            tp.textSize = 9.5f * d
+                            tp.textSize = 8.5f * d
                             tp.color = android.graphics.Color.rgb(11, 18, 32)
                             tp.isFakeBoldText = true
-                            canvas.nativeCanvas.drawText(
-                                kindShort.getOrElse(kind) { "?" },
-                                bx,
-                                by + 3.4f * d,
-                                tp,
+                            val word = kindWords.getOrElse(kind) { "?" }
+                            val tw = tp.measureText(word)
+                            val rr = android.graphics.RectF(
+                                bx - tw / 2 - 5.5f * d,
+                                by - 7.5f * d,
+                                bx + tw / 2 + 5.5f * d,
+                                by + 7.5f * d,
                             )
+                            val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                            fill.color = tone.toArgb()
+                            canvas.nativeCanvas.drawRoundRect(rr, 6f * d, 6f * d, fill)
+                            val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                            edge.color = android.graphics.Color.rgb(11, 18, 32)
+                            edge.style = android.graphics.Paint.Style.STROKE
+                            edge.strokeWidth = 1.1f * d
+                            canvas.nativeCanvas.drawRoundRect(rr, 6f * d, 6f * d, edge)
+                            canvas.nativeCanvas.drawText(word, bx, by + 3.1f * d, tp)
                         }
                     }
                 }

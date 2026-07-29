@@ -375,4 +375,5 @@
     <string name="works_hint">הקשה על סטטוס מחליפה: תוכנית → בעבודה → בוצע. נשמר עם הפרויקט.</string>
     <string name="liters_short">ל׳</string>
     <string name="rolls_short">גלילים</string>
+    <string name="share_plan">שיתוף תוכנית (PNG)</string>
 </resources>

@@ -375,4 +375,5 @@
     <string name="works_hint">Тап по статусу переключает: план → в работе → готово. Сохраняется с проектом.</string>
     <string name="liters_short">л</string>
     <string name="rolls_short">рул.</string>
+    <string name="share_plan">Поделиться планом (PNG)</string>
 </resources>
