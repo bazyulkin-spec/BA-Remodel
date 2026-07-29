@@ -121,6 +121,13 @@ print("  файлов с дисбалансом:", bad)
 sys.exit(1 if bad else 0)
 PY
 
+echo "== 5b3. compose-расширения без импорта (toArgb / asAndroidBitmap / nativeCanvas) =="
+for sym in toArgb asAndroidBitmap; do
+  for f in $(grep -rl "\.$sym(" app/src/main/java --include="*.kt"); do
+    grep -q "import .*\.$sym$" "$f" || { echo "  $f: .$sym( без импорта"; fail=1; }
+  done
+done
+
 echo "== 7. @Composable внутри не-inline лямбд (joinToString/run по ссылке) =="
 # joinToString НЕ inline: stringResource/painterResource внутри её лямбды не компилируется.
 # Грубая эвристика: composable-вызов в пределах 8 строк после joinToString( в том же файле.
