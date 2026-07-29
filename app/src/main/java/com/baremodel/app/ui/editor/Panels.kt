@@ -964,13 +964,22 @@ private fun RoomSection(vm: EditorViewModel) {
     Spacer(Modifier.height(14.dp))
     Text(stringResource(R.string.wall_thick), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(8.dp))
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
             Chip(
                 (t2 * 100).toInt().toString(),
                 abs(vm.wallThicknessM - t2) < 0.005,
             ) { vm.updateWallThickness(t2) }
         }
+        // не фикс: любая толщина цифрой — гипсокартон 7, кирпич 12, несущая 38…
+        NumField(
+            stringResource(R.string.thick_lbl), vm.wallThicknessM * 100,
+            stringResource(R.string.unit_cm), 2.0, 60.0,
+        ) { vm.updateWallThickness(it / 100.0) }
     }
 
     Spacer(Modifier.height(14.dp))
@@ -1287,6 +1296,12 @@ private fun SurfacesSection(vm: EditorViewModel) {
                     own != null && abs(own - t2) < 0.005,
                 ) { vm.updateWallThicknessOf(active, t2) }
             }
+            // индивидуально: своя толщина именно этой стены, цифрой
+            NumField(
+                stringResource(R.string.thick_lbl),
+                (own ?: vm.wallThicknessM) * 100,
+                stringResource(R.string.unit_cm), 2.0, 60.0,
+            ) { vm.updateWallThicknessOf(active, it / 100.0) }
         }
     }
 

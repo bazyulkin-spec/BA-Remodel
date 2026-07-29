@@ -54,6 +54,15 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+/** Цвет типа проёма — единый на плане, в 3D и в PNG-схеме; дверь и балкон различимы. */
+internal fun openingTone(kind: Int): Color = when (kind) {
+    OPENING_WINDOW -> Acc
+    OPENING_ENTRY -> Good
+    OPENING_BALCONY -> Color(0xFF3ED0C3)
+    OPENING_PASSAGE -> Sub
+    else -> Color(0xFFFF9046)
+}
+
 @Composable
 fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
     val unitM = stringResource(R.string.unit_m)
@@ -776,12 +785,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                     val p1 = Pt(a.x + ux * s1, a.y + uy * s1)
                     val doorLike = kind == OPENING_DOOR || kind == OPENING_BALCONY ||
                         kind == OPENING_ENTRY
-                    val tone = when (kind) {
-                        OPENING_WINDOW -> Acc
-                        OPENING_ENTRY -> Good
-                        OPENING_PASSAGE -> Sub
-                        else -> Acc2
-                    }
+                    val tone = openingTone(kind)
                     // сам проём: светлый разрыв в полосе стены
                     val gap = Path().apply {
                         moveTo(sx(p0.x), sy(p0.y))
@@ -884,12 +888,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                     val th = vm.wallThicknessOf("wall-" + (i + 1))
                     listO.forEachIndexed { oi, o ->
                         val kind = kindsM.getOrNull(oi) ?: OPENING_WINDOW
-                        val tone = when (kind) {
-                            OPENING_WINDOW -> Acc
-                            OPENING_ENTRY -> Good
-                            OPENING_PASSAGE -> Sub
-                            else -> Acc2
-                        }
+                        val tone = openingTone(kind)
                         val cxW = a.x + ux * (o.x + o.w / 2)
                         val cyW = a.y + uy * (o.x + o.w / 2)
                         // точка на наружной грани стены и центр кружка на отлёте
@@ -914,16 +913,16 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                         // любому, кому скинут схему
                         drawIntoCanvas { canvas ->
                             val tp = android.graphics.Paint(labelPaint)
-                            tp.textSize = 8.5f * d
-                            tp.color = android.graphics.Color.rgb(11, 18, 32)
+                            tp.textSize = 10.5f * d
+                            tp.color = android.graphics.Color.WHITE
                             tp.isFakeBoldText = true
                             val word = kindWords.getOrElse(kind) { "?" }
                             val tw = tp.measureText(word)
                             val rr = android.graphics.RectF(
-                                bx - tw / 2 - 5.5f * d,
-                                by - 7.5f * d,
-                                bx + tw / 2 + 5.5f * d,
-                                by + 7.5f * d,
+                                bx - tw / 2 - 7f * d,
+                                by - 9.5f * d,
+                                bx + tw / 2 + 7f * d,
+                                by + 9.5f * d,
                             )
                             val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
                             fill.color = tone.toArgb()
@@ -933,7 +932,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                             edge.style = android.graphics.Paint.Style.STROKE
                             edge.strokeWidth = 1.1f * d
                             canvas.nativeCanvas.drawRoundRect(rr, 6f * d, 6f * d, edge)
-                            canvas.nativeCanvas.drawText(word, bx, by + 3.1f * d, tp)
+                            canvas.nativeCanvas.drawText(word, bx, by + 3.7f * d, tp)
                         }
                     }
                 }

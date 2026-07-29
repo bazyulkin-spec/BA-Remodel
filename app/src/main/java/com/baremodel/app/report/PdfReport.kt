@@ -38,6 +38,7 @@ object PdfReport {
         buyCount: Int,
         thresholdPieces: Int = 0,
         pairSaved: Int = 0,
+        planBmp: Bitmap? = null,
         buyM2: Double,
         patternLabel: String,
         watermark: Boolean = true,
@@ -152,7 +153,8 @@ object PdfReport {
                 cutNumbers = cutNumbers,
                 cutInfo = if (cutNumbers) CutNumbering.compute(room, layout) else null,
             )
-            val bmp = fb.first
+            // если передан полный чертёж (стены, проёмы, размеры) — он в приоритете
+            val bmp = planBmp ?: fb.first
             val pw = 233f
             val ph = 150f
             val k = minOf(pw / bmp.width, ph / bmp.height)

@@ -128,6 +128,18 @@ data class CutBin(val nums: List<Int>, val restMm: Double, val stripLenMm: Doubl
 /** Пары резов: бины (включая одиночные) и экономия в плитках. */
 data class CutPairs(val bins: List<CutBin>, val saved: Int)
 
+/** Размер проёма по умолчанию для типа: ширина, высота, подоконник. */
+fun defaultOpeningSize(kind: Int): Triple<Double, Double, Double> = when (kind) {
+    OPENING_DOOR -> Triple(0.8, 2.05, 0.0)
+    OPENING_BALCONY -> Triple(0.8, 2.1, 0.0)
+    OPENING_ENTRY -> Triple(1.0, 2.05, 0.0)
+    OPENING_PASSAGE -> Triple(1.2, 2.1, 0.0)
+    else -> Triple(1.4, 1.4, 0.9)
+}
+
+/** Мастер проёма: где тапнули (стена, позиция) и выбранный тип (−1 — спросить). */
+data class OpeningWizard(val wall: Int, val sM: Double, val kind: Int)
+
 sealed interface Selection {
     data class Zone(val i: Int) : Selection
     data class Vertex(val i: Int) : Selection
@@ -1690,27 +1702,76 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var placeOpeningKind by mutableStateOf(-1)
         private set
 
+    /** Размер взведённого проёма; ширина −1.0 означает «во всю стену». */
+    var placeOpeningW by mutableStateOf(0.9)
+        private set
+
+    var placeOpeningH by mutableStateOf(2.05)
+        private set
+
+    var placeOpeningSill by mutableStateOf(0.0)
+        private set
+
     fun armPlaceOpening(kind: Int) {
-        placeOpeningKind = if (placeOpeningKind == kind) -1 else kind
+        if (placeOpeningKind == kind) {
+            placeOpeningKind = -1
+            return
+        }
+        placeOpeningKind = kind
+        val d = defaultOpeningSize(kind)
+        placeOpeningW = d.first
+        placeOpeningH = d.second
+        placeOpeningSill = d.third
     }
 
-    /** Поставить проём выбранного типа на стену wallIdx с центром в точке sM. */
+    fun setPlaceOpeningSize(w: Double, h: Double, sill: Double) {
+        placeOpeningW = w
+        placeOpeningH = h
+        placeOpeningSill = sill
+    }
+
+    /** Открытый мастер проёма: тап по стене → вопрос «что здесь?» → размер → счёт. */
+    var openingWizard by mutableStateOf<OpeningWizard?>(null)
+        private set
+
+    fun closeOpeningWizard() { openingWizard = null }
+
+    fun wizardPickKind(k: Int) {
+        openingWizard = openingWizard?.copy(kind = k)
+    }
+
+    /** Подтверждение мастера: размеры введены — ставим и всё пересчитывается само. */
+    fun confirmOpeningWizard(w: Double, h: Double, sill: Double) {
+        val wz = openingWizard ?: return
+        if (wz.kind < 0) return
+        placeOpeningW = w
+        placeOpeningH = h
+        placeOpeningSill = sill
+        addOpeningAt(wz.wall, wz.kind, wz.sM)
+        openingWizard = null
+    }
+
+    /**
+     * Поставить проём выбранного типа на стену wallIdx с центром в точке sM.
+     * Размер берётся из взведённых placeOpening* (пресеты в ряду над планом);
+     * ширина −1 означает «во всю стену» — французское остекление балкона.
+     */
     private fun addOpeningAt(wallIdx: Int, kind: Int, sM: Double) {
         val id = "wall-" + (wallIdx + 1)
         val wall = model.walls.firstOrNull { it.id == id } ?: return
-        // реальные размеры по типам — те же, что в панели «Поверхности»
-        val (wM, hM, sill) = when (kind) {
-            OPENING_DOOR -> Triple(0.9, 2.05, 0.0)
-            OPENING_BALCONY -> Triple(0.8, 2.1, 0.0)
-            OPENING_ENTRY -> Triple(1.0, 2.05, 0.0)
-            OPENING_PASSAGE -> Triple(1.2, 2.1, 0.0)
-            else -> Triple(1.4, 1.4, 0.9)
-        }
         pushUndo()
+        val wReq = if (placeOpeningW < 0) wall.lengthM else placeOpeningW
+        val wM = round2(wReq.coerceIn(0.1, wall.lengthM))
+        val hM = round2(placeOpeningH.coerceIn(0.3, wallHeightM))
+        val sill = if (kind == OPENING_WINDOW) {
+            placeOpeningSill.coerceIn(0.0, (wallHeightM - hM).coerceAtLeast(0.0))
+        } else {
+            0.0
+        }
         val x = (sM - wM / 2).coerceIn(0.0, (wall.lengthM - wM).coerceAtLeast(0.0))
-        val y = sill.coerceIn(0.0, (wallHeightM - hM).coerceAtLeast(0.0))
         val kinds = openingKindsOf(id) + kind
-        openings = openings + (id to (openingsOf(id) + Cutout(round2(x), round2(y), wM, hM)))
+        openings = openings +
+            (id to (openingsOf(id) + Cutout(round2(x), round2(sill), wM, hM)))
         openingKinds = openingKinds + (id to kinds)
         placeOpeningKind = -1
     }
@@ -2270,7 +2331,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             if (bestI >= 0) {
-                addOpeningAt(bestI, placeOpeningKind, bestS)
+                openingWizard = OpeningWizard(bestI, bestS, placeOpeningKind)
+                placeOpeningKind = -1
             }
             drag = Drag.NONE
             return
@@ -2323,6 +2385,38 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 if (drag == Drag.OPENING_MOVE) return
+            }
+        }
+        // голый тап по стене в режиме «Комната» — мастер спрашивает «что здесь?»
+        if (roomMode && openingWizard == null && !drawMode) {
+            val ptsR = room.points
+            val nearVertex = ptsR.any { (toScreen(it) - pos).getDistance() < 26f * uiScale }
+            if (!nearVertex) {
+                var bestI = -1
+                var bestS = 0.0
+                var bestD = 14.0 * uiScale / view.scale
+                for (i in ptsR.indices) {
+                    val a = ptsR[i]
+                    val b = ptsR[(i + 1) % ptsR.size]
+                    val ex = b.x - a.x
+                    val ey = b.y - a.y
+                    val len = sqrt(ex * ex + ey * ey)
+                    if (len < 1e-6) continue
+                    val t = (((w.x - a.x) * ex + (w.y - a.y) * ey) / (len * len)).coerceIn(0.0, 1.0)
+                    val qx = a.x + ex * t
+                    val qy = a.y + ey * t
+                    val dist = sqrt((w.x - qx) * (w.x - qx) + (w.y - qy) * (w.y - qy))
+                    if (dist < bestD) {
+                        bestD = dist
+                        bestI = i
+                        bestS = len * t
+                    }
+                }
+                if (bestI >= 0) {
+                    openingWizard = OpeningWizard(bestI, bestS, -1)
+                    drag = Drag.NONE
+                    return
+                }
             }
         }
         // касание по ДРУГОЙ комнате: сразу делаем её активной и тащим — одним жестом,

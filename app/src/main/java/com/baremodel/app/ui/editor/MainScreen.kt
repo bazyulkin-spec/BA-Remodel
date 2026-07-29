@@ -620,6 +620,183 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
             }
 
             val selV = vm.selection as? Selection.Vertex
+            vm.openingWizard?.let { wz ->
+                val wallLen = vm.model.walls.getOrNull(wz.wall)?.lengthM ?: 4.0
+                val mU = stringResource(R.string.unit_m)
+                if (wz.kind < 0) {
+                    // шаг 1: программа спрашивает, что здесь
+                    AlertDialog(
+                        onDismissRequest = { vm.closeOpeningWizard() },
+                        containerColor = Panel2,
+                        title = { Text(stringResource(R.string.wiz_what), color = Txt) },
+                        text = {
+                            Column {
+                                Text(
+                                    stringResource(R.string.surf_wall) + " " + (wz.wall + 1) +
+                                        " · " + String.format(Locale.getDefault(), "%.2f", wallLen) +
+                                        " " + mU,
+                                    color = Sub,
+                                    fontSize = 11.sp,
+                                )
+                                Spacer(Modifier.height(9.dp))
+                                listOf(
+                                    OPENING_DOOR to R.string.kind_door,
+                                    OPENING_WINDOW to R.string.kind_window,
+                                    OPENING_BALCONY to R.string.kind_balcony,
+                                    OPENING_ENTRY to R.string.kind_entry,
+                                    OPENING_PASSAGE to R.string.kind_passage,
+                                ).forEach { (k, res) ->
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(openingTone(k).copy(alpha = 0.16f))
+                                            .border(
+                                                1.dp,
+                                                openingTone(k).copy(alpha = 0.7f),
+                                                RoundedCornerShape(10.dp),
+                                            )
+                                            .clickable { vm.wizardPickKind(k) }
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    ) {
+                                        Text(
+                                            stringResource(res),
+                                            color = Txt,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {},
+                        dismissButton = {
+                            TextButton(onClick = { vm.closeOpeningWizard() }) {
+                                Text(stringResource(R.string.cancel), color = Sub)
+                            }
+                        },
+                    )
+                } else {
+                    // шаг 2: размер — пресеты как в жизни + свои цифры
+                    val defs = defaultOpeningSize(wz.kind)
+                    var wIn by remember(wz) {
+                        mutableStateOf(String.format(java.util.Locale.US, "%.2f", defs.first))
+                    }
+                    var hIn by remember(wz) {
+                        mutableStateOf(String.format(java.util.Locale.US, "%.2f", defs.second))
+                    }
+                    var sillIn by remember(wz) {
+                        mutableStateOf(String.format(java.util.Locale.US, "%.2f", defs.third))
+                    }
+                    fun applyPreset(t: Triple<Double, Double, Double>) {
+                        val wv = if (t.first < 0) wallLen else t.first
+                        wIn = String.format(java.util.Locale.US, "%.2f", wv)
+                        hIn = String.format(java.util.Locale.US, "%.2f", t.second)
+                        sillIn = String.format(java.util.Locale.US, "%.2f", t.third)
+                    }
+                    val presets = when (wz.kind) {
+                        OPENING_DOOR -> listOf(
+                            "0.7" to Triple(0.7, 2.05, 0.0),
+                            "0.8" to Triple(0.8, 2.05, 0.0),
+                            "0.9" to Triple(0.9, 2.05, 0.0),
+                            "1.0" to Triple(1.0, 2.05, 0.0),
+                        )
+                        OPENING_ENTRY -> listOf(
+                            "0.9" to Triple(0.9, 2.05, 0.0),
+                            "1.0" to Triple(1.0, 2.05, 0.0),
+                            "1.2" to Triple(1.2, 2.05, 0.0),
+                        )
+                        OPENING_BALCONY -> listOf(
+                            "0.8" to Triple(0.8, 2.1, 0.0),
+                            "1.8" to Triple(1.8, 2.1, 0.0),
+                            stringResource(R.string.op_full_wall) to Triple(-1.0, 2.1, 0.0),
+                        )
+                        OPENING_PASSAGE -> listOf(
+                            "0.9" to Triple(0.9, 2.1, 0.0),
+                            "1.2" to Triple(1.2, 2.1, 0.0),
+                            "1.5" to Triple(1.5, 2.1, 0.0),
+                        )
+                        else -> listOf(
+                            "0.9×1.2" to Triple(0.9, 1.2, 0.9),
+                            "1.4×1.4" to Triple(1.4, 1.4, 0.9),
+                            "1.8×1.4" to Triple(1.8, 1.4, 0.9),
+                            stringResource(R.string.op_full_height) to Triple(0.9, 2.2, 0.0),
+                            stringResource(R.string.op_full_wall) to Triple(-1.0, 2.2, 0.0),
+                        )
+                    }
+                    val kindName = stringResource(
+                        when (wz.kind) {
+                            OPENING_WINDOW -> R.string.kind_window
+                            OPENING_BALCONY -> R.string.kind_balcony
+                            OPENING_ENTRY -> R.string.kind_entry
+                            OPENING_PASSAGE -> R.string.kind_passage
+                            else -> R.string.kind_door
+                        },
+                    )
+                    AlertDialog(
+                        onDismissRequest = { vm.closeOpeningWizard() },
+                        containerColor = Panel2,
+                        title = {
+                            Text(kindName + " — " + stringResource(R.string.wiz_size), color = Txt)
+                        },
+                        text = {
+                            Column {
+                                Row(
+                                    Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    presets.forEach { (lbl, t) ->
+                                        Chip(lbl) { applyPreset(t) }
+                                    }
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = wIn,
+                                        onValueChange = { wIn = it },
+                                        label = { Text(stringResource(R.string.width)) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    OutlinedTextField(
+                                        value = hIn,
+                                        onValueChange = { hIn = it },
+                                        label = { Text(stringResource(R.string.height)) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                if (wz.kind == OPENING_WINDOW) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = sillIn,
+                                        onValueChange = { sillIn = it },
+                                        label = { Text(stringResource(R.string.opening_sill)) },
+                                        singleLine = true,
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                val wv = wIn.replace(',', '.').toDoubleOrNull()
+                                val hv = hIn.replace(',', '.').toDoubleOrNull()
+                                val sv = sillIn.replace(',', '.').toDoubleOrNull() ?: 0.0
+                                if (wv != null && hv != null) {
+                                    vm.confirmOpeningWizard(wv, hv, sv)
+                                }
+                            }) { Text(stringResource(R.string.wiz_place), color = Acc2) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { vm.closeOpeningWizard() }) {
+                                Text(stringResource(R.string.cancel), color = Sub)
+                            }
+                        },
+                    )
+                }
+            }
+
             if (vm.edgeEditIndex >= 0 && vm.edgeEditIndex < vm.room.points.size) {
                 val ei = vm.edgeEditIndex
                 val ea = vm.room.points[ei]
@@ -628,6 +805,14 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                 var lenIn2 by remember(ei) {
                     mutableStateOf(String.format(java.util.Locale.US, "%.2f", curLen))
                 }
+                var thickIn2 by remember(ei) {
+                    mutableStateOf(
+                        String.format(
+                            java.util.Locale.US, "%.0f",
+                            vm.wallThicknessOf("wall-" + (ei + 1)) * 100,
+                        ),
+                    )
+                }
                 var moveEnd2 by remember(ei) { mutableStateOf(true) }
                 AlertDialog(
                     onDismissRequest = { vm.closeEdgeEdit() },
@@ -635,12 +820,27 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                     title = { Text(stringResource(R.string.edge_len_title, ei + 1), color = Txt) },
                     text = {
                         Column {
-                            OutlinedTextField(
-                                value = lenIn2,
-                                onValueChange = { lenIn2 = it },
-                                label = { Text(stringResource(R.string.len_m)) },
-                                singleLine = true,
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = lenIn2,
+                                    onValueChange = { lenIn2 = it },
+                                    label = { Text(stringResource(R.string.len_m)) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                OutlinedTextField(
+                                    value = thickIn2,
+                                    onValueChange = { thickIn2 = it },
+                                    label = {
+                                        Text(
+                                            stringResource(R.string.thick_lbl) + ", " +
+                                                stringResource(R.string.unit_cm),
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             Spacer(Modifier.height(10.dp))
                             Text(stringResource(R.string.move_which), color = Dim, fontSize = 10.sp)
                             Spacer(Modifier.height(5.dp))
@@ -660,6 +860,9 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                         TextButton(onClick = {
                             lenIn2.replace(',', '.').toDoubleOrNull()?.let {
                                 vm.setEdgeLength(ei, it, moveEnd2)
+                            }
+                            thickIn2.replace(',', '.').toDoubleOrNull()?.let {
+                                vm.updateWallThicknessOf("wall-" + (ei + 1), it / 100.0)
                             }
                             vm.closeEdgeEdit()
                         }) { Text(stringResource(R.string.apply), color = Acc2) }

@@ -363,7 +363,7 @@
     <string name="fold_decor">Decor &amp; panel</string>
     <string name="fold_finish">Finish</string>
     <string name="fold_templates">Shape templates</string>
-    <string name="place_opening_hint">Tap a wall — the opening lands where you tap</string>
+    <string name="place_opening_hint">Tap a wall — the app will ask type and size</string>
     <string name="sec_works">Works</string>
     <string name="work_floor">Floor — tile</string>
     <string name="work_ceiling">Ceiling — paint</string>
@@ -376,4 +376,10 @@
     <string name="liters_short">L</string>
     <string name="rolls_short">rolls</string>
     <string name="share_plan">Share plan (PNG)</string>
+    <string name="op_full_height">Full-height</string>
+    <string name="op_full_wall">Full wall</string>
+    <string name="wiz_what">What goes here?</string>
+    <string name="wiz_size">size</string>
+    <string name="wiz_place">Place</string>
+    <string name="thick_lbl">Thickness</string>
 </resources>

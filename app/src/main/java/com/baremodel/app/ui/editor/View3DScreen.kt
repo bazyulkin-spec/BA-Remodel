@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -473,18 +474,24 @@ fun View3DScreen(vm: EditorViewModel) {
                                     V3(ax + ux * ox0 + nx * 0.008f, oy1, az + uz * ox0 + nz * 0.008f),
                                 ),
                                 if (glass) Color(0xFF13202F) else Color(0xFF0A0E15),
-                                when (oKind) {
-                                    OPENING_WINDOW -> Acc.copy(alpha = 0.55f)
-                                    OPENING_ENTRY -> Good.copy(alpha = 0.65f)
-                                    OPENING_PASSAGE -> Sub.copy(alpha = 0.5f)
-                                    else -> Acc2.copy(alpha = 0.55f)
-                                },
+                                openingTone(oKind).copy(alpha = 0.7f),
                             )
                         }
                     }
                 }
 
                 // стены остальных комнат (пол уже нарисован картинкой)
+                // выбранная плитка подсвечена на полу — видно, о чём говорит чип
+                if (pickedRoom < 0) {
+                    vm.layout.tiles.getOrNull(pickedTile)?.let { ptk ->
+                        addFace(
+                            ptk.corners.map { V3(it.x.toFloat(), 0.012f, it.y.toFloat()) },
+                            Acc.copy(alpha = 0.30f),
+                            Acc2,
+                        )
+                    }
+                }
+
                 vm.rooms.forEachIndexed { ri2, r ->
                     if (ri2 == vm.activeRoom) return@forEachIndexed
                     val rpts = r.spec.points
@@ -544,12 +551,7 @@ fun View3DScreen(vm: EditorViewModel) {
                                             V3(ax + ux2 * ox0 + nx * 0.008f, oy1, az + uz2 * ox0 + nz * 0.008f),
                                         ),
                                         if (glass2) Color(0xFF13202F) else Color(0xFF0A0E15),
-                                        when (k2) {
-                                            OPENING_WINDOW -> Acc.copy(alpha = 0.55f)
-                                            OPENING_ENTRY -> Good.copy(alpha = 0.65f)
-                                            OPENING_PASSAGE -> Sub.copy(alpha = 0.5f)
-                                            else -> Acc2.copy(alpha = 0.55f)
-                                        },
+                                        openingTone(k2).copy(alpha = 0.7f),
                                     )
                                 }
                             }
@@ -761,7 +763,7 @@ fun View3DScreen(vm: EditorViewModel) {
                     Box(
                         Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 12.dp)
+                            .padding(top = 64.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(Panel2.copy(alpha = 0.94f))
                             .border(1.dp, LineC, RoundedCornerShape(12.dp))
@@ -825,12 +827,21 @@ fun View3DScreen(vm: EditorViewModel) {
             ) {
             Text(stringResource(R.string.wall_height), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 listOf(2.4, 2.7, 3.0).forEach { h ->
                     Chip("$h " + stringResource(R.string.unit_m), abs(vm.wallHeightM - h) < 0.01) {
                         vm.setWallHeight(h)
                     }
                 }
+                // не фикс: своя высота потолка цифрой
+                NumField(
+                    stringResource(R.string.wall_height), vm.wallHeightM,
+                    stringResource(R.string.unit_m), 1.8, 4.0,
+                ) { vm.setWallHeight(it) }
                 Chip(stringResource(R.string.walls_low), lowWalls) { lowWalls = !lowWalls }
                 Chip(stringResource(R.string.walls_ghost), wallsGhost) { wallsGhost = !wallsGhost }
                 Chip(stringResource(R.string.reset_view)) {

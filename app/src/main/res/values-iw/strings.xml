@@ -363,7 +363,7 @@
     <string name="fold_decor">דקור ופאנל</string>
     <string name="fold_finish">גימור</string>
     <string name="fold_templates">תבניות צורה</string>
-    <string name="place_opening_hint">הקש על קיר — הפתח יונח בנקודת המגע</string>
+    <string name="place_opening_hint">הקש על קיר — האפליקציה תשאל סוג ומידה</string>
     <string name="sec_works">עבודות</string>
     <string name="work_floor">רצפה — אריחים</string>
     <string name="work_ceiling">תקרה — צבע</string>
@@ -376,4 +376,10 @@
     <string name="liters_short">ל׳</string>
     <string name="rolls_short">גלילים</string>
     <string name="share_plan">שיתוף תוכנית (PNG)</string>
+    <string name="op_full_height">עד הרצפה</string>
+    <string name="op_full_wall">כל הקיר</string>
+    <string name="wiz_what">מה כאן?</string>
+    <string name="wiz_size">מידה</string>
+    <string name="wiz_place">הצב</string>
+    <string name="thick_lbl">עובי</string>
 </resources>

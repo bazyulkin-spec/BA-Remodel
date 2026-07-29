@@ -363,7 +363,7 @@
     <string name="fold_decor">Декор и панно</string>
     <string name="fold_finish">Отделка</string>
     <string name="fold_templates">Шаблоны формы</string>
-    <string name="place_opening_hint">Тапни по стене — проём встанет в место касания</string>
+    <string name="place_opening_hint">Тапни по стене — программа спросит размер</string>
     <string name="sec_works">Работы</string>
     <string name="work_floor">Пол — плитка</string>
     <string name="work_ceiling">Потолок — краска</string>
@@ -376,4 +376,10 @@
     <string name="liters_short">л</string>
     <string name="rolls_short">рул.</string>
     <string name="share_plan">Поделиться планом (PNG)</string>
+    <string name="op_full_height">В пол</string>
+    <string name="op_full_wall">Вся стена</string>
+    <string name="wiz_what">Что здесь?</string>
+    <string name="wiz_size">размер</string>
+    <string name="wiz_place">Поставить</string>
+    <string name="thick_lbl">Толщина</string>
 </resources>

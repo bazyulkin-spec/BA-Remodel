@@ -216,6 +216,7 @@ fun ReportTab(vm: EditorViewModel) {
                         extra = vm.zoneLayers(),
                         colorOf = { t -> vm.colorOfTile(t) },
                         cutNumbers = vm.showCuts,
+                        planBmp = PlanShare.renderBitmap(context, vm, withHeader = false),
                     )
                 }
                 .padding(vertical = 14.dp),

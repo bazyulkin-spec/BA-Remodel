@@ -13,10 +13,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.FileProvider
 import com.baremodel.app.R
 import com.baremodel.app.ar.renderFloorBitmap
-import com.baremodel.app.ui.theme.Acc
-import com.baremodel.app.ui.theme.Acc2
 import com.baremodel.app.ui.theme.Good
-import com.baremodel.app.ui.theme.Sub
 import com.baremodel.core.Pt
 import com.baremodel.core.pointInPolygon
 import java.io.File
@@ -33,9 +30,14 @@ import kotlin.math.sqrt
  */
 object PlanShare {
 
-    fun share(context: Context, vm: EditorViewModel) {
+    /** Полный чертёж как Bitmap; withHeader=false — без шапки/итогов, для PDF. */
+    fun renderBitmap(
+        context: Context,
+        vm: EditorViewModel,
+        withHeader: Boolean = true,
+    ): Bitmap? {
         val pts = vm.room.points
-        if (pts.size < 3) return
+        if (pts.size < 3) return null
         fun s(id: Int) = context.getString(id)
 
         val base = renderFloorBitmap(
@@ -58,9 +60,9 @@ object PlanShare {
         val wMd = (pts.maxOf { it.x } - minx).coerceAtLeast(0.01)
         val ppm = base.width / wMd.toFloat()
 
-        val padS = 110
-        val padT = 100
-        val footH = 150
+        val padS = if (withHeader) 110 else 48
+        val padT = if (withHeader) 100 else 48
+        val footH = if (withHeader) 150 else 48
         val out = Bitmap.createBitmap(
             base.width + padS * 2,
             base.height + padT + footH,
@@ -117,13 +119,11 @@ object PlanShare {
             s(R.string.kind_window), s(R.string.kind_door), s(R.string.kind_balcony),
             s(R.string.kind_entry), s(R.string.kind_passage),
         )
-        val kindTones = listOf(
-            Acc.toArgb(), Acc2.toArgb(), Acc2.toArgb(), Good.toArgb(), Sub.toArgb(),
-        )
+        val kindTones = (0..4).map { openingTone(it).toArgb() }
         val wordTxt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.rgb(11, 18, 32)
+            color = android.graphics.Color.WHITE
             textAlign = Paint.Align.CENTER
-            textSize = 22f
+            textSize = 27f
             isFakeBoldText = true
         }
         for (i in pts.indices) {
@@ -149,7 +149,7 @@ object PlanShare {
             val th = vm.wallThicknessOf(id)
             listO.forEachIndexed { oi, o ->
                 val kind = kinds.getOrNull(oi) ?: OPENING_WINDOW
-                val tone = kindTones.getOrElse(kind) { Acc2.toArgb() }
+                val tone = kindTones.getOrElse(kind) { openingTone(1).toArgb() }
                 val p0 = Pt(a.x + ux * o.x, a.y + uy * o.x)
                 val p1 = Pt(a.x + ux * (o.x + o.w), a.y + uy * (o.x + o.w))
                 val gap = Path().apply {
@@ -265,6 +265,7 @@ object PlanShare {
         }
 
         // 4) заголовок и итоги
+        if (!withHeader) return out
         val h1 = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.rgb(230, 236, 245)
             textSize = 36f
@@ -298,7 +299,14 @@ object PlanShare {
             },
         )
 
-        // 5) сохранить и пошарить (та же папка, что у PDF — разрешена провайдером)
+        return out
+    }
+
+    /** Отправить готовый чертёж одним нажатием. */
+    fun share(context: Context, vm: EditorViewModel) {
+        val out = renderBitmap(context, vm) ?: return
+        fun s(id: Int) = context.getString(id)
+        // сохранить и пошарить (та же папка, что у PDF — разрешена провайдером)
         val dir = File(context.cacheDir, "reports").apply { mkdirs() }
         val file = File(dir, "BA-Remodel_plan.png")
         runCatching {
