@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -133,6 +134,44 @@ private val MATERIALS = listOf(
     MaterialKind.DECK to R.string.mat_deck,
     MaterialKind.NONE to R.string.mat_none,
 )
+
+/** Чип своего размера: тап — применить, долгое нажатие — удалить. */
+@Composable
+private fun FavChip(
+    text: String,
+    selected: Boolean,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (selected) AccSoft else Color.Transparent)
+            .border(1.dp, if (selected) Acc else LineC, RoundedCornerShape(11.dp))
+            .pointerInput(text) {
+                detectTapGestures(
+                    onTap = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onTap()
+                    },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress()
+                    },
+                )
+            }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+    ) {
+        Text(
+            text,
+            color = if (selected) Acc2 else Sub,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
 
 @Composable
 fun Chip(
@@ -540,13 +579,17 @@ private fun TileSection(vm: EditorViewModel) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             vm.favTiles.forEach { t ->
-                Chip(
+                FavChip(
                     "${(t.first / 10).toInt()}×${(t.second / 10).toInt()} ★",
                     vm.uiTile.widthMm == t.first && vm.uiTile.heightMm == t.second &&
                         vm.uiTile.groutMm == t.third,
-                ) { vm.applyFavTile(t) }
+                    onTap = { vm.applyFavTile(t) },
+                    onLongPress = { vm.removeFavTile(t) },
+                )
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(R.string.fav_hint), color = Sub, fontSize = 10.sp, lineHeight = 14.sp)
         Spacer(Modifier.height(8.dp))
     }
     Row(
@@ -565,6 +608,10 @@ private fun TileSection(vm: EditorViewModel) {
             stringResource(R.string.fav_save),
             vm.favTiles.contains(Triple(vm.uiTile.widthMm, vm.uiTile.heightMm, vm.uiTile.groutMm)),
         ) { vm.toggleFavTile() }
+    }
+    if (vm.favTiles.isEmpty() && !plank) {
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(R.string.fav_intro), color = Sub, fontSize = 10.sp, lineHeight = 14.sp)
     }
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -487,4 +487,8 @@
     <string name="preset_kitchen">מטבח</string>
     <string name="preset_room">חדר</string>
     <string name="preset_hall">מסדרון</string>
+    <string name="fav_intro">הזן מידה משלך ולחץ ★ — המידות שלך יחליפו את הקטלוג. 2 או 12, רק שלך.</string>
+    <string name="fav_hint">הקשה — החלה · לחיצה ארוכה — מחיקה. מחקת הכול — הקטלוג חוזר.</string>
+    <string name="ruler_across">בשורה: %1$d שלמים + %2$d מ״מ</string>
+    <string name="ruler_rows">שורות: %1$d + %2$d מ״מ</string>
 </resources>

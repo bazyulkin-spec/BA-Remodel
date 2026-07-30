@@ -40,6 +40,7 @@ import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Warn
 import com.baremodel.core.Arcs
+import com.baremodel.core.PatternType
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.LocalRect
 import com.baremodel.core.Pt
@@ -72,6 +73,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
         R.string.kind_entry, R.string.kind_passage,
     ).map { stringResource(it) }
     val wmText = stringResource(R.string.wm_brand)
+    val rulerAcrossTpl = stringResource(R.string.ruler_across)
+    val rulerRowsTpl = stringResource(R.string.ruler_rows)
     val stairUpText = stringResource(R.string.stairs_up)
     val stairPorchText = stringResource(R.string.stairs_porch)
     val inactiveLayouts = remember(vm.rooms, vm.activeRoom) {
@@ -1077,7 +1080,10 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             // и по высоте (слева) — 7 сверху × 5 слева ≈ 35, как считает мастер
             run {
                 val rot = ((vm.pattern.rotationDeg % 360.0) + 360.0) % 360.0
-                if (kotlin.math.abs(rot % 90.0) < 0.01 || kotlin.math.abs(rot % 90.0 - 90.0) < 0.01) {
+                val herring = vm.pattern.type == PatternType.HERRINGBONE
+                if (!herring &&
+                    (kotlin.math.abs(rot % 90.0) < 0.01 || kotlin.math.abs(rot % 90.0 - 90.0) < 0.01)
+                ) {
                     val swap = kotlin.math.abs(rot % 180.0 - 90.0) < 0.01
                     val stepW = (
                         (if (swap) vm.tile.heightMm else vm.tile.widthMm) +
@@ -1092,8 +1098,25 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                         val maxx = pts.maxOf { it.x }
                         val miny = pts.minOf { it.y }
                         val maxy = pts.maxOf { it.y }
-                        val cntX = kotlin.math.ceil((maxx - minx) / stepW - 1e-9).toInt()
-                        val cntY = kotlin.math.ceil((maxy - miny) / stepH - 1e-9).toInt()
+                        val gM = kotlin.math.max(0.0, vm.tile.groutMm) / 1000.0
+                        // целые клетки, попавшие в габарит целиком, с фазой узора;
+                        // остаток — всё, что уйдёт в подрезку с обоих концов, в мм
+                        fun axis(minC: Double, maxC: Double, off: Double, step: Double): Pair<Int, Int> {
+                            val cell = step - gM
+                            var k = floor((minC - off) / step).toInt() - 1
+                            var full = 0
+                            var guard = 0
+                            while (off + k * step < maxC && guard < 4000) {
+                                val s0 = off + k * step
+                                if (s0 >= minC - 1e-6 && s0 + cell <= maxC + 1e-6) full++
+                                k++
+                                guard++
+                            }
+                            val rem = (maxC - minC - full * cell - (full - 1).coerceAtLeast(0) * gM) * 1000.0
+                            return full to kotlin.math.max(0.0, rem).roundToInt()
+                        }
+                        val ax = axis(minx, maxx, vm.pattern.offsetX, stepW)
+                        val ay = axis(miny, maxy, vm.pattern.offsetY, stepH)
                         fun pill(txt: String, cxp: Float, cyp: Float) {
                             drawIntoCanvas { canvas ->
                                 val tp = android.graphics.Paint(labelPaint)
@@ -1113,8 +1136,16 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                                 canvas.nativeCanvas.drawText(txt, cxp, cyp + 3.4f * d, tp)
                             }
                         }
-                        pill("≈$cntX", sx((minx + maxx) / 2), sy(miny) - 30f * d)
-                        pill("≈$cntY", sx(minx) - 32f * d, sy((miny + maxy) / 2))
+                        pill(
+                            String.format(rulerAcrossTpl, ax.first, ax.second),
+                            sx((minx + maxx) / 2),
+                            sy(miny) + 16f * d,
+                        )
+                        pill(
+                            String.format(rulerRowsTpl, ay.first, ay.second),
+                            sx((minx + maxx) / 2),
+                            sy(miny) + 36f * d,
+                        )
                     }
                 }
             }
@@ -1230,6 +1261,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             val maxy = pts.maxOf { it.y }
             val dashG = PathEffect.dashPathEffect(floatArrayOf(8f * d, 6f * d))
             val gx = when (vm.patternSnapX) {
+                1 -> if (vm.patternHintX.isNaN()) null else vm.patternHintX
                 2, 3 -> (minx + maxx) / 2
                 4 -> minx
                 5 -> maxx
@@ -1237,11 +1269,13 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             }
             gx?.let {
                 drawLine(
-                    Good, Offset(sx(it), sy(miny)), Offset(sx(it), sy(maxy)),
+                    if (vm.patternSnapX == 1) Warn else Good,
+                    Offset(sx(it), sy(miny)), Offset(sx(it), sy(maxy)),
                     strokeWidth = 1.6f * d, pathEffect = dashG,
                 )
             }
             val gy = when (vm.patternSnapY) {
+                1 -> if (vm.patternHintY.isNaN()) null else vm.patternHintY
                 2, 3 -> (miny + maxy) / 2
                 4 -> miny
                 5 -> maxy
@@ -1249,7 +1283,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             }
             gy?.let {
                 drawLine(
-                    Good, Offset(sx(minx), sy(it)), Offset(sx(maxx), sy(it)),
+                    if (vm.patternSnapY == 1) Warn else Good,
+                    Offset(sx(minx), sy(it)), Offset(sx(maxx), sy(it)),
                     strokeWidth = 1.6f * d, pathEffect = dashG,
                 )
             }

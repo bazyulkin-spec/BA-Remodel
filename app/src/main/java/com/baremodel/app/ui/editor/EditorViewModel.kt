@@ -1007,7 +1007,13 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavTile() {
         val cur = Triple(tile.widthMm, tile.heightMm, tile.groutMm)
-        favTiles = if (favTiles.contains(cur)) favTiles - cur else (favTiles + cur).takeLast(8)
+        favTiles = if (favTiles.contains(cur)) favTiles - cur else (favTiles + cur).takeLast(12)
+        persistFavs()
+    }
+
+    /** Удалить свой размер долгим нажатием — не нужно сначала применять его. */
+    fun removeFavTile(t: Triple<Double, Double, Double>) {
+        favTiles = favTiles - t
         persistFavs()
     }
 
@@ -2076,6 +2082,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
      * Активный магнит раскладки при перетаскивании узора:
      * 0 — нет, 2 — шов по центру, 3 — плитка по центру, 4/5 — полная плитка у стены.
      */
+    /** Стена, чью полосу лечит магнит-подсказка: координата для направляющей. */
+    var patternHintX by mutableStateOf(Double.NaN)
+        private set
+    var patternHintY by mutableStateOf(Double.NaN)
+        private set
+
     var patternSnapX by mutableStateOf(0)
         private set
 
@@ -3186,23 +3198,34 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                     val miny = room.points.minOf { it.y }
                     val maxy = room.points.maxOf { it.y }
                     val tol = 7.0 * uiScale / view.scale
-                    fun snapAxis(v: Double, step: Double, lo: Double, hi: Double, set: (Int) -> Unit): Double {
+                    fun snapAxis(
+                        v: Double,
+                        step: Double,
+                        lo: Double,
+                        hi: Double,
+                        hint: Double?,
+                        set: (Int) -> Unit,
+                    ): Double {
                         if (step < 1e-6) return v
-                        val cands = listOf(
-                            2 to (lo + hi) / 2,
-                            3 to (lo + hi) / 2 - step / 2,
-                            4 to lo,
-                            5 to hi,
-                        )
+                        val cands = ArrayList<Pair<Int, Double>>()
+                        // подсказка про полосу — самый сильный магнит: щёлк — и полосы нет
+                        if (hint != null) cands.add(1 to hint)
+                        cands.add(2 to (lo + hi) / 2)
+                        cands.add(3 to (lo + hi) / 2 - step / 2)
+                        cands.add(4 to lo)
+                        cands.add(5 to hi)
                         var bestKind = 0
-                        var bestDf = tol
+                        var bestDf = 0.0
+                        var bestGap = Double.MAX_VALUE
                         for ((kind, target) in cands) {
                             var df = (target - v) % step
                             if (df > step / 2) df -= step
                             if (df < -step / 2) df += step
-                            if (abs(df) < abs(bestDf)) {
+                            val reach = if (kind == 1) tol * 1.8 else tol
+                            if (abs(df) < reach && abs(df) < bestGap) {
                                 bestKind = kind
                                 bestDf = df
+                                bestGap = abs(df)
                             }
                         }
                         if (bestKind != 0) {
@@ -3211,8 +3234,37 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                         }
                         return v
                     }
-                    ox = snapAxis(ox, stepW, minx, maxx) { patternSnapX = it }
-                    oy = snapAxis(oy, stepH, miny, maxy) { patternSnapY = it }
+                    // цель подсказки: фаза, при которой у больной стены остаётся полплитки
+                    var hintX: Double? = null
+                    var hintY: Double? = null
+                    patternHintX = Double.NaN
+                    patternHintY = Double.NaN
+                    var hintWallX = Double.NaN
+                    var hintWallY = Double.NaN
+                    val twarn = cutReport.warnings
+                        .filter { it.code == "THIN_STRIP" }
+                        .minByOrNull { it.valueCm }
+                    if (twarn != null && twarn.edgeIndex in room.points.indices) {
+                        val wa = room.points[twarn.edgeIndex]
+                        val wb = room.points[(twarn.edgeIndex + 1) % room.points.size]
+                        val wex = wb.x - wa.x
+                        val wey = wb.y - wa.y
+                        val wlen = sqrt(wex * wex + wey * wey)
+                        if (wlen > 1e-6) {
+                            // нормаль доминирует по X — стена вертикальная, лечим ось X
+                            if (abs(wey) > abs(wex)) {
+                                hintWallX = (wa.x + wb.x) / 2
+                                hintX = hintWallX + stepW / 2
+                            } else {
+                                hintWallY = (wa.y + wb.y) / 2
+                                hintY = hintWallY + stepH / 2
+                            }
+                        }
+                    }
+                    ox = snapAxis(ox, stepW, minx, maxx, hintX) { patternSnapX = it }
+                    oy = snapAxis(oy, stepH, miny, maxy, hintY) { patternSnapY = it }
+                    if (patternSnapX == 1) patternHintX = hintWallX
+                    if (patternSnapY == 1) patternHintY = hintWallY
                 }
                 pattern = pattern.copy(offsetX = ox, offsetY = oy)
             }

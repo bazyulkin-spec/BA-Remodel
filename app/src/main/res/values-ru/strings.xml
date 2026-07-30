@@ -487,4 +487,8 @@
     <string name="preset_kitchen">Кухня</string>
     <string name="preset_room">Комната</string>
     <string name="preset_hall">Коридор</string>
+    <string name="fav_intro">Введи свой размер и нажми ★ — свои размеры заменят этот каталог. Хоть 2, хоть 12, только твои.</string>
+    <string name="fav_hint">Тап — применить · долгое нажатие — удалить. Удалишь все — каталог вернётся.</string>
+    <string name="ruler_across">В ряд: %1$d целых + %2$d мм</string>
+    <string name="ruler_rows">Рядов: %1$d + %2$d мм</string>
 </resources>

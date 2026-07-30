@@ -487,4 +487,8 @@
     <string name="preset_kitchen">Kitchen</string>
     <string name="preset_room">Room</string>
     <string name="preset_hall">Hallway</string>
+    <string name="fav_intro">Type your size and hit ★ — your sizes replace this catalog. Keep 2 or 12, only yours.</string>
+    <string name="fav_hint">Tap to apply · long press to delete. Delete all — the catalog comes back.</string>
+    <string name="ruler_across">Per row: %1$d whole + %2$d mm</string>
+    <string name="ruler_rows">Rows: %1$d + %2$d mm</string>
 </resources>
