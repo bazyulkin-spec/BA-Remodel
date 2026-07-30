@@ -28,6 +28,7 @@ import com.baremodel.app.ar.ArBridge
 import com.baremodel.app.ar.ExtraLayer
 import com.baremodel.app.ar.PanelInfo
 import com.baremodel.app.ar.renderFloorBitmap
+import com.baremodel.app.data.LevelDto
 import com.baremodel.app.data.Prices
 import com.baremodel.app.data.RoomDto
 import com.baremodel.app.data.ZoneDto
@@ -35,6 +36,8 @@ import java.io.File
 import com.baremodel.app.data.ProjectDto
 import com.baremodel.app.data.ProjectMeta
 import com.baremodel.app.data.ProjectRepository
+import com.baremodel.core.ArcRun
+import com.baremodel.core.Arcs
 import com.baremodel.core.Aligner
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.ArtRect
@@ -56,17 +59,28 @@ import com.baremodel.core.LayoutResult
 import com.baremodel.core.LayoutSuggester
 import com.baremodel.core.MaterialCalc
 import com.baremodel.core.areaM2
+import com.baremodel.core.MaterialKind
+import com.baremodel.core.MaterialSpec
 import com.baremodel.core.PatternSpec
 import com.baremodel.core.PlacedTile
 import com.baremodel.core.PatternType
+import com.baremodel.core.PlankCalc
+import com.baremodel.core.PlankPlan
 import com.baremodel.core.Pt
 import com.baremodel.core.RoomSpec
 import com.baremodel.core.SkirtPlan
+import com.baremodel.core.SkirtSegment
+import com.baremodel.core.StairsCalc
+import com.baremodel.core.StairsFinish
+import com.baremodel.core.StairsCut
+import com.baremodel.core.StairsPlan
+import com.baremodel.core.StairsSpec
 import com.baremodel.core.SkirtingCalc
 import com.baremodel.core.TileClass
 import com.baremodel.core.TileSpec
 import com.baremodel.core.TilingEngine
 import com.baremodel.core.clipPolygonByRect
+import com.baremodel.core.isPlank
 import com.baremodel.core.pointInPolygon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -94,6 +108,13 @@ data class RoomStat(
     val buy: Int,
     val money: Double,
     val tileLabel: String,
+)
+
+/** Строка сводки по этажу (для отчёта). */
+data class LevelStat(
+    val index: Int,
+    val areaM2: Double,
+    val count: Int,
 )
 
 /** Типы проёмов: окно, дверь, балконная дверь, входная дверь, проход без двери. */
@@ -138,13 +159,19 @@ fun defaultOpeningSize(kind: Int): Triple<Double, Double, Double> = when (kind) 
 }
 
 /** Мастер проёма: где тапнули (стена, позиция) и выбранный тип (−1 — спросить). */
-data class OpeningWizard(val wall: Int, val sM: Double, val kind: Int)
+data class OpeningWizard(
+    val wall: Int,
+    val sM: Double,
+    val kind: Int,
+    val editIndex: Int = -1,
+)
 
 sealed interface Selection {
     data class Zone(val i: Int) : Selection
     data class Vertex(val i: Int) : Selection
     data class Cut(val i: Int) : Selection
     data class Furn(val i: Int) : Selection
+    data class Stair(val i: Int) : Selection
     data class Tile(val i: Int) : Selection
 }
 
@@ -239,6 +266,14 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var showCuts by mutableStateOf(true)
         private set
 
+    /** Ступени и крыльца этой комнаты. */
+    var stairs by mutableStateOf<List<StairsSpec>>(emptyList())
+        private set
+
+    /** Комната на улице: крыльцо или терраса — без стен, потолка и плинтуса. */
+    var outdoor by mutableStateOf(false)
+        private set
+
     var showFurniture by mutableStateOf(true)
         private set
 
@@ -247,6 +282,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     var wallHeightM by mutableStateOf(2.7)
+        private set
+
+    /** Материал пола комнаты: плитка, ламинат, паркет, доска или ничего. */
+    var material by mutableStateOf(MaterialSpec())
         private set
 
     // ---------- квартира: несколько комнат ----------
@@ -258,6 +297,43 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var activeRoom by mutableStateOf(0)
         private set
 
+    // ---------- этажи: у каждого свой набор комнат ----------
+
+    /** Состояние одного этажа: комнаты, мебель и статусы работ. */
+    private data class LevelState(
+        val rooms: List<RoomDto>,
+        val furniture: List<Furniture>,
+        val workStatus: Map<String, Int>,
+    )
+
+    /** Активный этаж (0 — первый). Его комнаты живут в [rooms]. */
+    var activeLevel by mutableStateOf(0)
+        private set
+
+    /** Остальные этажи; активного здесь нет. */
+    private var levelStore by mutableStateOf(mapOf<Int, LevelState>())
+
+    /** Свои названия этажей: индекс → имя. Пусто — берётся «Этаж N». */
+    var levelNames by mutableStateOf(mapOf<Int, String>())
+        private set
+
+    /** Все этажи по порядку, включая активный. */
+    val levelList: List<Int> get() = (levelStore.keys + activeLevel).sorted()
+
+    /** Показывать этаж снизу призраком — чтобы стены ставить по нижним. */
+    var showGhost by mutableStateOf(true)
+        private set
+
+    fun toggleGhost() { showGhost = !showGhost }
+
+    /** Комнаты ближайшего этажа снизу; пусто, если этажа нет или призрак выключен. */
+    val ghostRooms: List<RoomDto>
+        get() {
+            if (!showGhost) return emptyList()
+            val below = levelStore.keys.filter { it < activeLevel }.maxOrNull() ?: return emptyList()
+            return levelStore[below]?.rooms.orEmpty()
+        }
+
     /** Снимок текущих полей как комната. */
     private fun snapshotRoom(name: String): RoomDto = RoomDto(
         name = name,
@@ -268,6 +344,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         zones = zones,
         tileColors = tileColors,
         wallThickness = wallThickness,
+        material = material,
+        stairs = stairs,
+        outdoor = outdoor,
         spec = room,
         tile = tile,
         pattern = pattern,
@@ -288,6 +367,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         zones = d.zones
         tileColors = d.tileColors
         wallThickness = d.wallThickness
+        material = d.material
+        stairs = d.stairs
+        outdoor = d.outdoor
         activeZone = -1
         room = d.spec
         tile = d.tile
@@ -382,6 +464,96 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         applyRoom(list[activeRoom])
         fit()
     }
+
+    /** Имя этажа для интерфейса: своё или «Этаж N». */
+    fun levelTitle(l: Int): String =
+        levelNames[l]?.takeIf { it.isNotBlank() }
+            ?: getApplication<Application>().getString(R.string.level_n, l + 1)
+
+    /** Копия хранилища, в которую уложен текущий этаж. Состояние не меняет. */
+    private fun stashLevels(): MutableMap<Int, LevelState> {
+        val cur = rooms.toMutableList()
+        if (activeRoom in cur.indices) cur[activeRoom] = snapshotRoom(cur[activeRoom].name)
+        if (cur.isEmpty()) cur.add(snapshotRoom(""))
+        val store = levelStore.toMutableMap()
+        store[activeLevel] = LevelState(cur, furniture, workStatus)
+        return store
+    }
+
+    /** Сделать этаж [l] активным; [store] уже содержит все остальные этажи. */
+    private fun openLevel(l: Int, st: LevelState, store: MutableMap<Int, LevelState>) {
+        store.remove(l)
+        levelStore = store
+        activeLevel = l
+        rooms = st.rooms
+        furniture = st.furniture
+        workStatus = st.workStatus
+        activeRoom = 0
+        applyRoom(st.rooms.first())
+        fit()
+    }
+
+    /** Перейти на другой этаж: текущий целиком уходит в хранилище. */
+    fun switchLevel(l: Int) {
+        if (l == activeLevel) return
+        val st = levelStore[l] ?: return
+        if (st.rooms.isEmpty()) return
+        pushUndo()
+        openLevel(l, st, stashLevels())
+    }
+
+    /**
+     * Новый этаж сверху: контуры комнат копируются с текущего, чтобы стены
+     * совпали. Мебель и отметки о выполненных работах не переносятся.
+     */
+    fun addLevel() {
+        pushUndo()
+        val store = stashLevels()
+        val next = (store.keys.maxOrNull() ?: activeLevel) + 1
+        val st = LevelState(store[activeLevel]?.rooms.orEmpty(), emptyList(), emptyMap())
+        if (st.rooms.isEmpty()) return
+        store[next] = st
+        openLevel(next, st, store)
+    }
+
+    /** Удалить активный этаж; остаётся ближайший снизу. */
+    fun deleteActiveLevel() {
+        if (levelStore.isEmpty()) return
+        pushUndo()
+        val dead = activeLevel
+        val store = levelStore.toMutableMap()
+        val target = store.keys.filter { it < dead }.maxOrNull()
+            ?: store.keys.minOrNull()
+            ?: return
+        val st = store[target] ?: return
+        levelNames = levelNames - dead
+        openLevel(target, st, store)
+    }
+
+    fun renameActiveLevel(name: String) {
+        levelNames = levelNames + (activeLevel to name.take(24))
+    }
+
+    /** Сводка по всем этажам: площадь пола и штуки материала. Только чтение. */
+    fun levelSummaries(): List<LevelStat> = stashLevels().entries
+        .sortedBy { it.key }
+        .map { (i, st) ->
+            var area = 0.0
+            var count = 0
+            st.rooms.forEach { r ->
+                val holes = r.spec.cutouts + r.zones.map { Cutout(it.x, it.y, it.w, it.h) }
+                val base = TilingEngine.build(r.spec.copy(cutouts = holes), r.tile, r.pattern)
+                area += base.areaM2
+                count += base.totalCount
+                r.zones.forEach { z ->
+                    val poly = clipPolygonByRect(r.spec.points, z.x, z.y, z.x + z.w, z.y + z.h)
+                    if (poly.size >= 3) {
+                        count += TilingEngine.build(RoomSpec(poly), z.tile, z.pattern).totalCount
+                    }
+                }
+            }
+            LevelStat(i, area, count)
+        }
 
     /**
      * Насколько сдвинуть активную комнату, чтобы она встала вплотную к соседней.
@@ -854,6 +1026,163 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
      * вместо прежнего сдвига соседа по лучу, который ломал соседние стены.
      * Если параллельного поглотителя нет (косой контур) — двигается только сам конец.
      */
+    // ---------- дуги и круглые комнаты ----------
+
+    /** Шаг ломаной для дуг: от размера плитки — под 600-ю дробить контур незачем. */
+    private fun arcSegMm(): Double = min(400.0, max(80.0, min(tile.widthMm, tile.heightMm) / 2))
+
+    /** Участки контура, лежащие на дуге: для подписей и для плинтуса. */
+    val arcRuns: List<ArcRun> by derivedStateOf { Arcs.detectArcs(room.points) }
+
+    /**
+     * Вершина лежит на дуге? Такие точки заперты от перетаскивания:
+     * случайный палец превращал ровную дугу в излом, лечившийся только отменой.
+     * Дуга правится заново кнопками — целиком, а не по точке.
+     */
+    fun vertexOnArc(i: Int): Boolean {
+        val runs = arcRuns
+        if (runs.isEmpty()) return false
+        val n = room.points.size
+        return Arcs.edgeInArc(runs, i % n, n) != null ||
+            Arcs.edgeInArc(runs, (i - 1 + n) % n, n) != null
+    }
+
+    /** Ребро внутри дуги? На таких не рисуем «+» — точку туда вставлять незачем. */
+    fun edgeOnArc(i: Int): Boolean =
+        Arcs.edgeInArc(arcRuns, i, room.points.size) != null
+
+    /** Прямоугольная комната по типовому размеру: быстрый старт без черчения. */
+    fun applyRoomPreset(wM: Double, hM: Double) =
+        replaceOutline(listOf(Pt(0.0, 0.0), Pt(wM, 0.0), Pt(wM, hM), Pt(0.0, hM)))
+
+    /** Круглая комната по диаметру. */
+    fun makeRoundRoom(diameterM: Double) = replaceOutline(Arcs.circle(diameterM, arcSegMm()))
+
+    /** Овальная комната по двум осям. */
+    fun makeOvalRoom(axisAM: Double, axisBM: Double) =
+        replaceOutline(Arcs.oval(axisAM, axisBM, arcSegMm()))
+
+    /** Меняет контур целиком: проёмы привязаны к стенам, поэтому снимаются. */
+    private fun replaceOutline(points: List<Pt>) {
+        if (points.size < 3) return
+        pushUndo()
+        val minx = room.points.minOf { it.x }
+        val miny = room.points.minOf { it.y }
+        room = RoomSpec(points.map { Pt(round2(it.x + minx), round2(it.y + miny)) })
+        if (openings.isNotEmpty() || wallThickness.isNotEmpty()) {
+            openings = emptyMap()
+            openingKinds = emptyMap()
+            wallThickness = emptyMap()
+            toast(R.string.arc_openings_cleared)
+        }
+        selection = null
+        edgeEditIndex = -1
+        reanchor()
+        fit()
+    }
+
+    /**
+     * Гнёт выбранную стену дугой: [sagittaMm] — стрелка прогиба, знак задаёт сторону.
+     * Стена выбирается тапом по её метке размера либо вершиной.
+     */
+    fun bendSelectedWall(sagittaMm: Double) {
+        val n = room.points.size
+        val edge = when {
+            edgeEditIndex in 0 until n -> edgeEditIndex
+            else -> (selection as? Selection.Vertex)?.i ?: -1
+        }
+        if (edge !in 0 until n) {
+            toast(R.string.arc_pick_wall)
+            return
+        }
+        val a = room.points[edge]
+        val b = room.points[(edge + 1) % n]
+        val ins = Arcs.bend(a, b, sagittaMm / 1000.0, arcSegMm())
+        if (ins.isEmpty()) return
+        pushUndo()
+        val pts = ArrayList(room.points)
+        pts.addAll(edge + 1, ins.map { Pt(round2(it.x), round2(it.y)) })
+        room = room.copy(points = pts)
+        // проём на согнутой стене снимается, у дальних стен ключ сдвигается
+        openings = shiftWallKeys(openings, edge, ins.size)
+        openingKinds = shiftWallKeys(openingKinds, edge, ins.size)
+        wallThickness = shiftWallKeys(wallThickness, edge, ins.size)
+        edgeEditIndex = -1
+        selection = null
+        // смежная стена соседней комнаты: те же две точки — гнём той же дугой,
+        // иначе между комнатами останется серп из ничьей площади
+        var mirrored = false
+        fun near(p: Pt, q: Pt) = abs(p.x - q.x) < 0.02 && abs(p.y - q.y) < 0.02
+        rooms = rooms.mapIndexed { ri, dto ->
+            if (ri == activeRoom || mirrored) return@mapIndexed dto
+            val p = dto.spec.points
+            for (j in p.indices) {
+                val c = p[j]
+                val e = p[(j + 1) % p.size]
+                val same = near(c, a) && near(e, b)
+                val rev = near(c, b) && near(e, a)
+                if (!same && !rev) continue
+                val ins2 = if (same) ins else ins.reversed()
+                val np = ArrayList(p)
+                np.addAll(j + 1, ins2.map { Pt(round2(it.x), round2(it.y)) })
+                mirrored = true
+                return@mapIndexed dto.copy(
+                    spec = dto.spec.copy(points = np),
+                    openings = shiftWallKeys(dto.openings, j, ins2.size),
+                    openingKinds = shiftWallKeys(dto.openingKinds, j, ins2.size),
+                    wallThickness = shiftWallKeys(dto.wallThickness, j, ins2.size),
+                )
+            }
+            dto
+        }
+        if (mirrored) toast(R.string.arc_neighbor_bent)
+        reanchor()
+    }
+
+    /** Ключи «wall-N» после вставки точек в ребро [bentEdge]. */
+    private fun <T> shiftWallKeys(map: Map<String, T>, bentEdge: Int, inserted: Int): Map<String, T> {
+        if (map.isEmpty()) return map
+        val out = LinkedHashMap<String, T>()
+        for ((k, v) in map) {
+            val idx = k.removePrefix("wall-").toIntOrNull()
+            if (idx == null) {
+                out[k] = v
+            } else if (idx != bentEdge) {
+                out["wall-" + (if (idx > bentEdge) idx + inserted else idx)] = v
+            }
+        }
+        return out
+    }
+
+    /** По дуге плинтус не пилят на каждый сегмент ломаной — считаем её одной длиной. */
+    private fun mergeArcSegments(segs: List<SkirtSegment>): List<SkirtSegment> {
+        val runs = arcRuns
+        if (runs.isEmpty() || segs.isEmpty()) return segs
+        val n = room.points.size
+        val out = ArrayList<SkirtSegment>(segs.size)
+        var i = 0
+        while (i < segs.size) {
+            val s0 = segs[i]
+            val run = Arcs.edgeInArc(runs, s0.wall, n)
+            if (run == null || s0.partsOnWall > 1) {
+                out.add(s0)
+                i++
+                continue
+            }
+            var len = 0.0
+            var j = i
+            while (j < segs.size) {
+                val sj = segs[j]
+                if (sj.partsOnWall > 1 || Arcs.edgeInArc(runs, sj.wall, n)?.startEdge != run.startEdge) break
+                len += sj.lenM
+                j++
+            }
+            out.add(SkirtSegment(s0.wall, 0.0, len, 1, 1))
+            i = j
+        }
+        return out
+    }
+
     fun setEdgeLength(edge: Int, newLen: Double, moveEnd: Boolean) {
         val pts = room.points
         val n = pts.size
@@ -993,11 +1322,20 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         zones.getOrNull(activeZone)?.let { if (it.colorArgb != -1) Color(it.colorArgb) else tileColor } ?: tileColor
     val uiVariation: Boolean get() = zones.getOrNull(activeZone)?.variation ?: variation
 
-    /** Базовая раскладка: зоны вычтены из неё как отверстия, поэтому стык режется честно. */
+    /** Материал, который сейчас редактируется: комнаты или выбранной зоны. */
+    val uiMaterial: MaterialSpec get() = zones.getOrNull(activeZone)?.material ?: material
+
+    /** Базовая раскладка: зоны и марши вычтены как отверстия, поэтому стык режется честно. */
     val layout: LayoutResult by derivedStateOf {
-        val holes = room.cutouts + zones.map { Cutout(it.x, it.y, it.w, it.h) }
+        val holes = room.cutouts + zones.map { Cutout(it.x, it.y, it.w, it.h) } +
+            stairs.filter { it.cutsFloor }.map { Cutout(it.x, it.y, it.w, it.h) }
         TilingEngine.build(room.copy(cutouts = holes), tile, pattern)
     }
+
+    /** Вырезы и марши, пересекающие прямоугольник зоны: их из зоны тоже вычитаем. */
+    private fun holesInside(x: Double, y: Double, w: Double, h: Double): List<Cutout> =
+        (room.cutouts + stairs.filter { it.cutsFloor }.map { Cutout(it.x, it.y, it.w, it.h) })
+            .filter { it.x < x + w && it.x + it.w > x && it.y < y + h && it.y + it.h > y }
 
     /** Раскладки зон: контур зоны = комната ∩ прямоугольник зоны. */
     val zoneLayouts: List<Pair<ZoneDto, LayoutResult>> by derivedStateOf {
@@ -1006,10 +1344,55 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             if (poly.size < 3) {
                 null
             } else {
-                val inner = room.cutouts.filter {
-                    it.x < z.x + z.w && it.x + it.w > z.x && it.y < z.y + z.h && it.y + it.h > z.y
+                z to TilingEngine.build(
+                    RoomSpec(poly, holesInside(z.x, z.y, z.w, z.h)), z.tile, z.pattern,
+                )
+            }
+        }
+    }
+
+    /**
+     * Расход планки для того, что сейчас редактируется (комнаты или зоны).
+     * null — материал считается штуками, как плитка.
+     */
+    val plankPlan: PlankPlan? by derivedStateOf {
+        val m = uiMaterial
+        if (!m.kind.isPlank) {
+            null
+        } else {
+            val z = zones.getOrNull(activeZone)
+            if (z != null) {
+                val poly = clipPolygonByRect(room.points, z.x, z.y, z.x + z.w, z.y + z.h)
+                if (poly.size < 3) {
+                    null
+                } else {
+                    PlankCalc.plan(
+                        RoomSpec(poly, holesInside(z.x, z.y, z.w, z.h)), z.tile, z.pattern, m, reservePct,
+                    )
                 }
-                z to TilingEngine.build(RoomSpec(poly, inner), z.tile, z.pattern)
+            } else {
+                val holes = room.cutouts + zones.map { Cutout(it.x, it.y, it.w, it.h) } +
+                    stairs.filter { it.cutsFloor }.map { Cutout(it.x, it.y, it.w, it.h) }
+                PlankCalc.plan(room.copy(cutouts = holes), tile, pattern, m, reservePct)
+            }
+        }
+    }
+
+    /** Расход планки по всем зонам комнаты — для отчёта и смет. */
+    val zonePlankPlans: List<Pair<ZoneDto, PlankPlan>> by derivedStateOf {
+        zones.mapNotNull { z ->
+            if (!z.material.kind.isPlank) {
+                null
+            } else {
+                val poly = clipPolygonByRect(room.points, z.x, z.y, z.x + z.w, z.y + z.h)
+                if (poly.size < 3) {
+                    null
+                } else {
+                    z to PlankCalc.plan(
+                        RoomSpec(poly, holesInside(z.x, z.y, z.w, z.h)),
+                        z.tile, z.pattern, z.material, reservePct,
+                    )
+                }
             }
         }
     }
@@ -1023,6 +1406,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
         add(tile, layout.totalCount)
         zoneLayouts.forEach { (z, l) -> add(z.tile, l.totalCount) }
+        // плитка ступеней в той же сводке: у мастера одна цифра «купить», а не две;
+        // берём раскрой без запаса — общий запас добавится строкой ниже
+        stairs.forEach { st ->
+            val tiles = StairsCalc.cutPlan(st).totalTiles
+            if (tiles > 0) add(st.tile, tiles)
+        }
         return map.map { (k, v) -> k to ceil(v * (1 + reservePct / 100.0)).toInt() }
     }
 
@@ -1407,7 +1796,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
      * сторону плитки.
      */
     val skirtPlan: SkirtPlan by derivedStateOf {
-        val segs = SkirtingCalc.segments(room.points, openings)
+        val raw = if (outdoor) emptyList() else SkirtingCalc.segments(room.points, openings)
+        val segs = mergeArcSegments(raw)
         val bar = if (skirtMode == 1) {
             max(tile.widthMm, tile.heightMm) / 1000.0
         } else {
@@ -1730,6 +2120,40 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         placeOpeningSill = sill
     }
 
+    /** Выбранный тапом существующий проём: (стена, индекс); null — нет. */
+    var openingSel by mutableStateOf<Pair<Int, Int>?>(null)
+        private set
+
+    fun clearOpeningSel() { openingSel = null }
+
+    private var openingMovedFlag = false
+
+    /** Удалить выбранный проём — вместе с его типом. */
+    fun deleteSelectedOpening() {
+        val (wIdx, oi) = openingSel ?: return
+        val id = "wall-" + (wIdx + 1)
+        val list = openingsOf(id).toMutableList()
+        if (oi !in list.indices) return
+        pushUndo()
+        list.removeAt(oi)
+        val kinds = openingKindsOf(id).toMutableList()
+        if (oi in kinds.indices) kinds.removeAt(oi)
+        openings = openings + (id to list)
+        openingKinds = openingKinds + (id to kinds)
+        openingSel = null
+    }
+
+    /** Изменить размер выбранного проёма: мастер открывается сразу на шаге размера. */
+    fun editSelectedOpening() {
+        val (wIdx, oi) = openingSel ?: return
+        val id = "wall-" + (wIdx + 1)
+        val o = openingsOf(id).getOrNull(oi) ?: return
+        val kind = openingKindsOf(id).getOrNull(oi)
+            ?: if (o.y < 0.05) OPENING_DOOR else OPENING_WINDOW
+        openingWizard = OpeningWizard(wIdx, o.x + o.w / 2, kind, editIndex = oi)
+        openingSel = null
+    }
+
     /** Открытый мастер проёма: тап по стене → вопрос «что здесь?» → размер → счёт. */
     var openingWizard by mutableStateOf<OpeningWizard?>(null)
         private set
@@ -1744,6 +2168,31 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmOpeningWizard(w: Double, h: Double, sill: Double) {
         val wz = openingWizard ?: return
         if (wz.kind < 0) return
+        if (wz.editIndex >= 0) {
+            // правка существующего: заменить размеры и тип, позиция сохраняется
+            val id = "wall-" + (wz.wall + 1)
+            val wall = model.walls.firstOrNull { it.id == id } ?: return
+            val list = openingsOf(id).toMutableList()
+            if (wz.editIndex !in list.indices) return
+            pushUndo()
+            val wv = if (w < 0) wall.lengthM else w
+            val wM = round2(wv.coerceIn(0.1, wall.lengthM))
+            val hM = round2(h.coerceIn(0.3, wallHeightM))
+            val sillV = if (wz.kind == OPENING_WINDOW) {
+                sill.coerceIn(0.0, (wallHeightM - hM).coerceAtLeast(0.0))
+            } else {
+                0.0
+            }
+            val x = list[wz.editIndex].x.coerceIn(0.0, (wall.lengthM - wM).coerceAtLeast(0.0))
+            list[wz.editIndex] = Cutout(round2(x), round2(sillV), wM, hM)
+            val kinds = openingKindsOf(id).toMutableList()
+            while (kinds.size < list.size) kinds.add(OPENING_WINDOW)
+            kinds[wz.editIndex] = wz.kind
+            openings = openings + (id to list)
+            openingKinds = openingKinds + (id to kinds)
+            openingWizard = null
+            return
+        }
         placeOpeningW = w
         placeOpeningH = h
         placeOpeningSill = sill
@@ -2064,6 +2513,32 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         return out
     }
 
+    /**
+     * Плитки, скрытые мебелью (кухня, шкаф, ванна…): центр плитки внутри
+     * прямоугольника мебели. Сюда программа советует ставить некрасивые куски
+     * и подрезки — под мебелью их никто не увидит.
+     */
+    val hiddenTiles: Set<Int> by derivedStateOf {
+        if (furniture.isEmpty()) return@derivedStateOf emptySet()
+        val res = HashSet<Int>()
+        layout.tiles.forEachIndexed { i, t ->
+            if (t.corners.isEmpty()) return@forEachIndexed
+            val cx = t.corners.sumOf { it.x } / t.corners.size
+            val cy = t.corners.sumOf { it.y } / t.corners.size
+            if (furniture.any { f ->
+                    cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h
+                }
+            ) {
+                res.add(i)
+            }
+        }
+        res
+    }
+
+    /** Номера подрезок, уже стоящих в скрытых зонах. */
+    val hiddenCutNumbers: List<Int> get() =
+        hiddenTiles.mapNotNull { cutInfo[it]?.number }.sorted()
+
     /** Учитывать парование в покупке. */
     var pairCuts by mutableStateOf(true)
         private set
@@ -2114,6 +2589,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val zones: List<ZoneDto>,
         val tileColors: Map<String, Int>,
         val wallThickness: Map<String, Double>,
+        val material: MaterialSpec,
+        val stairs: List<StairsSpec>,
+        val outdoor: Boolean,
+        val activeLevel: Int,
+        val levelStore: Map<Int, LevelState>,
+        val levelNames: Map<Int, String>,
     )
 
     private val undoStack = ArrayDeque<Snap>()
@@ -2129,6 +2610,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         room, tile, pattern, tileColor, variation, reservePct,
         decor, anchor, furniture, finishes, openings, openingKinds, wallHeightM, wallThicknessM,
         rooms, activeRoom, decorOverrides, panelOn, panelRX, panelRY, zones, tileColors, wallThickness,
+        material, stairs, outdoor, activeLevel, levelStore, levelNames,
     )
 
     /** Запомнить состояние перед изменением. */
@@ -2164,6 +2646,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         zones = s.zones
         tileColors = s.tileColors
         wallThickness = s.wallThickness
+        material = s.material
+        stairs = s.stairs
+        outdoor = s.outdoor
+        activeLevel = s.activeLevel
+        levelStore = s.levelStore
+        levelNames = s.levelNames
         selection = null
         suggestions = null
     }
@@ -2239,7 +2727,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- жесты ----------
 
-    private enum class Drag { NONE, PAN, PATTERN, VERTEX, CUT_MOVE, CUT_RESIZE, FURN_MOVE, FURN_RESIZE, ROOM_MOVE, PLAN_MOVE, ZONE_MOVE, ZONE_RESIZE, PAINT, FORMAT, OPENING_MOVE }
+    private enum class Drag { NONE, PAN, PATTERN, VERTEX, CUT_MOVE, CUT_RESIZE, FURN_MOVE, FURN_RESIZE, STAIR_MOVE, ROOM_MOVE, PLAN_MOVE, ZONE_MOVE, ZONE_RESIZE, PAINT, FORMAT, OPENING_MOVE }
 
     private var drag = Drag.NONE
     private var dragIndex = -1
@@ -2307,6 +2795,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             drag = Drag.NONE
             return
         }
+        openingSel = null
         // взведён проём: тап по стене ставит его в место касания
         if (roomMode && placeOpeningKind >= 0) {
             val ptsR = room.points
@@ -2379,6 +2868,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 listO.forEachIndexed { oi, o ->
                     if (drag == Drag.NONE && sAxis >= o.x - padS && sAxis <= o.x + o.w + padS) {
                         drag = Drag.OPENING_MOVE
+                        openingMovedFlag = false
                         dragWall = i
                         dragIndex = oi
                         grabDx = sAxis - o.x
@@ -2460,9 +2950,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        // 1. вершина
+        // 1. вершина; точки дуги заперты — палец их не хватает и не ломает дугу
         room.points.forEachIndexed { i, p ->
-            if (drag == Drag.NONE && (toScreen(p) - pos).getDistance() < 26f * uiScale) {
+            if (drag == Drag.NONE && !vertexOnArc(i) &&
+                (toScreen(p) - pos).getDistance() < 26f * uiScale
+            ) {
                 pushOnce()
                 drag = Drag.VERTEX
                 dragIndex = i
@@ -2483,6 +2975,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         // 2. «+» на середине ребра
         val pts = room.points
         for (i in pts.indices) {
+            if (edgeOnArc(i)) continue
             val a = pts[i]
             val b = pts[(i + 1) % pts.size]
             val sa = toScreen(a)
@@ -2527,6 +3020,19 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 grabDx = w.x - c.x
                 grabDy = w.y - c.y
                 selection = Selection.Cut(i)
+            }
+        }
+        if (drag != Drag.NONE) return
+
+        // 4st. ступени: тап внутри марша — выбор и перенос
+        stairs.forEachIndexed { i, st ->
+            if (drag == Drag.NONE && w.x > st.x && w.x < st.x + st.w && w.y > st.y && w.y < st.y + st.h) {
+                pushOnce()
+                drag = Drag.STAIR_MOVE
+                dragIndex = i
+                grabDx = w.x - st.x
+                grabDy = w.y - st.y
+                selection = Selection.Stair(i)
             }
         }
         if (drag != Drag.NONE) return
@@ -2620,6 +3126,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             Drag.OPENING_MOVE -> {
+                openingMovedFlag = true
                 val i = dragWall
                 val ptsR = room.points
                 if (i in ptsR.indices) {
@@ -2863,6 +3370,18 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
 
+            Drag.STAIR_MOVE -> {
+                val ls = stairs.toMutableList()
+                if (dragIndex in ls.indices) {
+                    val wp = toWorld(pos)
+                    ls[dragIndex] = ls[dragIndex].copy(
+                        x = round2(wp.x - grabDx),
+                        y = round2(wp.y - grabDy),
+                    )
+                    stairs = ls
+                }
+            }
+
             Drag.NONE -> Unit
         }
     }
@@ -2871,6 +3390,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         patternSnapX = 0
         patternSnapY = 0
         if (drag == Drag.VERTEX) clampOpenings()
+        if (drag == Drag.OPENING_MOVE && !openingMovedFlag) {
+            openingSel = dragWall to dragIndex
+        }
         if (drag == Drag.FORMAT) brushFinish()
         if (drag == Drag.PATTERN && !patternMoved) {
             selection = if (tappedTile >= 0) {
@@ -2963,6 +3485,38 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Сменить материал пола: подставляет типовой габарит планки, зазор и узор,
+     * а «ничего» снимает отделку пола. Плитку не трогаем, если она уже плиточная.
+     */
+    fun setMaterialKind(kind: MaterialKind) {
+        pushUndo()
+        val spec = MaterialSpec.preset(kind)
+        val pt = MaterialSpec.presetTile(kind)
+        val pat = MaterialSpec.presetPattern(kind)
+        if (activeZone in zones.indices) {
+            updateZone(activeZone) { z ->
+                if (kind.isPlank) {
+                    z.copy(material = spec, tile = pt, pattern = z.pattern.copy(type = pat))
+                } else {
+                    z.copy(material = spec)
+                }
+            }
+            return
+        }
+        material = spec
+        if (kind.isPlank) {
+            tile = pt
+            pattern = pattern.copy(type = pat)
+        } else if (tile.heightMm > 0 && tile.widthMm / tile.heightMm > 3.0) {
+            // возвращаемся с планки на плитку — вытянутый габарит уже не годится
+            tile = MaterialSpec.presetTile(MaterialKind.TILE)
+        }
+        finishes = finishes + ("floor" to if (kind == MaterialKind.NONE) Finish.NONE else Finish.TILE)
+        suggestions = null
+        reanchor()
+    }
+
     fun setPatternType(t: PatternType) {
         pushUndo()
         if (activeZone in zones.indices) {
@@ -3034,14 +3588,42 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearImage() { tileImage = null }
 
+    /**
+     * Фото с современных камер бывает 50–200 Мп: полный декод на слабом телефоне —
+     * это OOM и смерть процесса, которую runCatching не ловит надёжно. Поэтому
+     * всё ужимается до [MAX_DECODE_PX] по длинной стороне ещё на декодере —
+     * для подложки, текстуры плитки и декора этого хватает с запасом.
+     */
     private fun decodeBitmap(context: Context, uri: Uri): ImageBitmap? = runCatching {
         if (Build.VERSION.SDK_INT >= 28) {
             ImageDecoder.decodeBitmap(
                 ImageDecoder.createSource(context.contentResolver, uri)
-            ) { decoder, _, _ -> decoder.isMutableRequired = false }
+            ) { decoder, info, _ ->
+                decoder.isMutableRequired = false
+                val side = maxOf(info.size.width, info.size.height)
+                if (side > MAX_DECODE_PX) {
+                    val k = MAX_DECODE_PX.toDouble() / side
+                    decoder.setTargetSize(
+                        (info.size.width * k).toInt().coerceAtLeast(8),
+                        (info.size.height * k).toInt().coerceAtLeast(8),
+                    )
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
-            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            val full = MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            val side = maxOf(full.width, full.height)
+            if (side > MAX_DECODE_PX) {
+                val k = MAX_DECODE_PX.toDouble() / side
+                android.graphics.Bitmap.createScaledBitmap(
+                    full,
+                    (full.width * k).toInt().coerceAtLeast(8),
+                    (full.height * k).toInt().coerceAtLeast(8),
+                    true,
+                )
+            } else {
+                full
+            }
         }
     }.getOrNull()?.asImageBitmap()
 
@@ -3297,6 +3879,99 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- мебель ----------
 
+    // ---------- ступени и крыльцо ----------
+
+    /** Новые ступени в центре комнаты; материал берётся у комнаты. */
+    fun addStairs() {
+        pushUndo()
+        val c = roomCenter()
+        stairs = stairs + StairsSpec(
+            id = "st" + System.currentTimeMillis(),
+            x = round2(c.x - 0.5),
+            y = round2(c.y - 0.45),
+            tile = tile,
+            material = material,
+        )
+        selection = Selection.Stair(stairs.lastIndex)
+    }
+
+    fun deleteSelectedStairs() {
+        val sel = selection as? Selection.Stair ?: return
+        if (sel.i !in stairs.indices) return
+        pushUndo()
+        val ls = stairs.toMutableList()
+        ls.removeAt(sel.i)
+        stairs = ls
+        selection = null
+    }
+
+    private fun updateSelectedStairs(f: (StairsSpec) -> StairsSpec) {
+        val sel = selection as? Selection.Stair ?: return
+        if (sel.i !in stairs.indices) return
+        val ls = stairs.toMutableList()
+        ls[sel.i] = f(ls[sel.i])
+        stairs = ls
+    }
+
+    val selectedStairs: StairsSpec? get() = (selection as? Selection.Stair)?.let { stairs.getOrNull(it.i) }
+
+    val selectedStairsIndex: Int get() = (selection as? Selection.Stair)?.i ?: -1
+
+    fun selectStairs(i: Int) {
+        selection = if (i in stairs.indices) Selection.Stair(i) else null
+    }
+
+    fun setStairsWidth(m: Double) = updateSelectedStairs { it.copy(widthM = m.coerceIn(0.3, 6.0)) }
+
+    fun setStairsSteps(n: Double) = updateSelectedStairs { it.copy(steps = n.toInt().coerceIn(1, 40)) }
+
+    fun setStairsTread(mm: Double) = updateSelectedStairs { it.copy(treadMm = mm.coerceIn(150.0, 600.0)) }
+
+    fun setStairsRiser(mm: Double) = updateSelectedStairs { it.copy(riserMm = mm.coerceIn(80.0, 300.0)) }
+
+    fun rotateStairs() = updateSelectedStairs { it.copy(dirDeg = (it.dirDeg + 90) % 360) }
+
+    fun toggleStairsRisers() = updateSelectedStairs { it.copy(risers = !it.risers) }
+
+    fun setStairsTreadFinish(f: StairsFinish) = updateSelectedStairs { it.copy(treadFinish = f) }
+
+    fun setStairsRiserFinish(f: StairsFinish) = updateSelectedStairs { it.copy(riserFinish = f) }
+
+    /** Оставить пол под маршем: под лестницей на этаж пол бывает виден и облицован. */
+    fun toggleStairsFloor() = updateSelectedStairs { it.copy(cutsFloor = !it.cutsFloor) }
+
+    /** Куда ведёт марш: этаж или крыльцо (-1). */
+    fun setStairsLevel(l: Int) = updateSelectedStairs { it.copy(toLevel = l) }
+
+    /** Ступени берут плитку и материал комнаты. */
+    fun stairsTakeRoomMaterial() = updateSelectedStairs { it.copy(tile = tile, material = material) }
+
+    /** Подобрать ступени под подъём: подступёнок в норме, проступь по формуле 2h + b. */
+    fun fitStairsToHeight(m: Double) {
+        pushUndo()
+        updateSelectedStairs { StairsCalc.fitToHeight(m, it) }
+    }
+
+    /** Расход по каждым ступеням комнаты — для панели и отчёта. */
+    val stairsPlans: List<Pair<StairsSpec, StairsPlan>> by derivedStateOf {
+        stairs.map { it to StairsCalc.plan(it, reservePct) }
+    }
+
+    val selectedStairsPlan: StairsPlan? get() = selectedStairs?.let { StairsCalc.plan(it, reservePct) }
+
+    /** Раскрой выбранного марша: что режем и из скольких плиток. */
+    val selectedStairsCut: StairsCut? get() = selectedStairs?.let { StairsCalc.cutPlan(it) }
+
+    /** Крыльцо/терраса: снимаем стены, потолок и плинтус — на улице их нет. */
+    fun toggleOutdoor() {
+        pushUndo()
+        outdoor = !outdoor
+        if (outdoor) {
+            finishes = finishes.mapValues { (k, v) -> if (k == "floor") v else Finish.NONE } +
+                ("ceiling" to Finish.NONE)
+        }
+    }
+
     fun addFurniture(name: String, wM: Double, hM: Double, heightM: Double = 0.85, kind: String = "box") {
         pushUndo()
         val c = roomCenter()
@@ -3540,6 +4215,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             prices = prices,
             rooms = rooms,
             activeRoom = activeRoom,
+            material = material,
+            levels = levelsDto(),
+            activeLevel = activeLevel,
             savedAt = System.currentTimeMillis(),
         )
     }
@@ -3576,6 +4254,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         pairCuts = dto.pairCuts
         workStatus = dto.workStatus
         prices = dto.prices
+        material = dto.material
+        stairs = dto.stairs
+        outdoor = dto.outdoor
         if (dto.rooms.isNotEmpty()) {
             rooms = dto.rooms
             activeRoom = dto.activeRoom.coerceIn(0, dto.rooms.lastIndex)
@@ -3584,10 +4265,37 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             rooms = listOf(snapshotRoom(""))
             activeRoom = 0
         }
+        applyLevels(dto)
         projectName = dto.name
         selection = null
         suggestions = null
         fit()
+    }
+
+    /** Все этажи для сохранения: активный берётся из живого состояния. */
+    private fun levelsDto(): List<LevelDto> = stashLevels().entries
+        .sortedBy { it.key }
+        .map { (i, st) -> LevelDto(i, levelNames[i] ?: "", st.rooms, st.furniture, st.workStatus) }
+
+    /** Разложить этажи из файла; старые файлы без этажей остаются одноэтажными. */
+    private fun applyLevels(dto: ProjectDto) {
+        val src = dto.levels.filter { it.rooms.isNotEmpty() }
+        if (src.size < 2) {
+            levelStore = emptyMap()
+            levelNames = emptyMap()
+            activeLevel = 0
+            return
+        }
+        val act = src.firstOrNull { it.index == dto.activeLevel } ?: src.first()
+        levelStore = src.filter { it.index != act.index }
+            .associate { it.index to LevelState(it.rooms, it.furniture, it.workStatus) }
+        levelNames = src.filter { it.name.isNotBlank() }.associate { it.index to it.name }
+        activeLevel = act.index
+        rooms = act.rooms
+        furniture = act.furniture
+        workStatus = act.workStatus
+        activeRoom = 0
+        applyRoom(act.rooms.first())
     }
 
     /**
@@ -3688,6 +4396,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         anchor = AnchorMode.FREE
         furniture = emptyList()
         finishes = mapOf("floor" to Finish.TILE, "ceiling" to Finish.PAINT)
+        stairs = emptyList()
+        outdoor = false
         openings = emptyMap()
         openingKinds = emptyMap()
         decorOverrides = emptyMap()
@@ -3700,6 +4410,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         wallThicknessM = 0.10
         rooms = emptyList()
         activeRoom = 0
+        levelStore = emptyMap()
+        levelNames = emptyMap()
+        activeLevel = 0
         rooms = listOf(snapshotRoom(""))
         selection = null
         suggestions = null
@@ -3759,3 +4472,6 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 }
+
+/** Предел длинной стороны фото при декоде, px: хватает подложке и текстурам. */
+private const val MAX_DECODE_PX = 2600

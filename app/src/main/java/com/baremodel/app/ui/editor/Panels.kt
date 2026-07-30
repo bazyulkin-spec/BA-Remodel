@@ -84,6 +84,7 @@ import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Txt
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.Arcs
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.ArtRect
 import com.baremodel.core.DecorMode
@@ -92,6 +93,9 @@ import com.baremodel.core.Finish
 import com.baremodel.core.MaterialCalc
 import com.baremodel.core.SurfaceKind
 import com.baremodel.core.LayoutSuggester
+import com.baremodel.core.MaterialKind
+import com.baremodel.core.StairsFinish
+import com.baremodel.core.isPlank
 import com.baremodel.core.PatternType
 import com.baremodel.core.TileSpec
 import com.baremodel.core.polygonPerimeter
@@ -103,6 +107,32 @@ import java.util.Date
 import java.util.Locale
 
 // ---------- атомы ----------
+
+/** Материалы пола в порядке частоты на объекте. */
+/** Отделка ступеней: плитка считается раскладкой, дерево — досками, бетон и отметка — ничем. */
+private val STAIR_FINISHES = listOf(
+    StairsFinish.TILE to R.string.mat_tile,
+    StairsFinish.WOOD to R.string.fin_wood,
+    StairsFinish.CONCRETE to R.string.fin_concrete,
+    StairsFinish.NONE to R.string.fin_mark,
+)
+
+/** Типовые размеры: ванная и санузел — самые частые объекты плиточника. */
+private val ROOM_PRESETS = listOf(
+    R.string.preset_bath to (1.7 to 1.7),
+    R.string.preset_wc to (1.2 to 1.5),
+    R.string.preset_kitchen to (3.0 to 2.7),
+    R.string.preset_room to (4.0 to 3.0),
+    R.string.preset_hall to (1.2 to 4.0),
+)
+
+private val MATERIALS = listOf(
+    MaterialKind.TILE to R.string.mat_tile,
+    MaterialKind.LAMINATE to R.string.mat_laminate,
+    MaterialKind.PARQUET to R.string.mat_parquet,
+    MaterialKind.DECK to R.string.mat_deck,
+    MaterialKind.NONE to R.string.mat_none,
+)
 
 @Composable
 fun Chip(
@@ -496,13 +526,15 @@ private val PALETTE = listOf(
 @Composable
 private fun TileSection(vm: EditorViewModel) {
     val context = LocalContext.current
+    MaterialRow(vm)
     Fold(
         vm, "tile.size", stringResource(R.string.fold_size),
         vm.uiTile.widthMm.toInt().toString() + "×" + vm.uiTile.heightMm.toInt() +
             " · " + vm.uiTile.groutMm.toInt() + " " + stringResource(R.string.unit_mm),
         default = true,
     ) {
-    if (vm.favTiles.isNotEmpty()) {
+    val plank = vm.uiMaterial.kind.isPlank
+    if (vm.favTiles.isNotEmpty() && !plank) {
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -521,7 +553,8 @@ private fun TileSection(vm: EditorViewModel) {
         Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        PRESETS.forEach { (w, h) ->
+        // свои размеры важнее каталога: как только есть избранное — пресеты уходят
+        if (vm.favTiles.isEmpty() && !plank) PRESETS.forEach { (w, h) ->
             val label = "${(w / 10).toInt()}×${(h / 10).toInt()}"
             Chip(label, vm.uiTile.widthMm == w && vm.uiTile.heightMm == h) {
                 vm.setTileWidth(w)
@@ -535,15 +568,18 @@ private fun TileSection(vm: EditorViewModel) {
     }
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        NumField(stringResource(R.string.width), vm.uiTile.widthMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
-            vm.setTileWidth(it)
-        }
-        NumField(stringResource(R.string.length), vm.uiTile.heightMm, stringResource(R.string.unit_mm), 30.0, 2000.0) {
-            vm.setTileHeight(it)
-        }
-        NumField(stringResource(R.string.grout), vm.uiTile.groutMm, stringResource(R.string.unit_mm), 0.0, 30.0) {
-            vm.setGrout(it)
-        }
+        NumField(
+            stringResource(if (plank) R.string.plank_len else R.string.width),
+            vm.uiTile.widthMm, stringResource(R.string.unit_mm), 30.0, 3000.0,
+        ) { vm.setTileWidth(it) }
+        NumField(
+            stringResource(if (plank) R.string.plank_wid else R.string.length),
+            vm.uiTile.heightMm, stringResource(R.string.unit_mm), 30.0, 3000.0,
+        ) { vm.setTileHeight(it) }
+        NumField(
+            stringResource(if (plank) R.string.plank_gap else R.string.grout),
+            vm.uiTile.groutMm, stringResource(R.string.unit_mm), 0.0, 30.0,
+        ) { vm.setGrout(it) }
     }
     }
     Fold(vm, "tile.color", stringResource(R.string.fold_color)) {
@@ -718,6 +754,26 @@ private fun TileSection(vm: EditorViewModel) {
     }
 }
 
+/** Выбор материала пола: от него зависят габарит, узор и как считается закупка. */
+@Composable
+private fun MaterialRow(vm: EditorViewModel) {
+    Text(stringResource(R.string.material), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(5.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        MATERIALS.forEach { (kind, label) ->
+            Chip(stringResource(label), vm.uiMaterial.kind == kind) { vm.setMaterialKind(kind) }
+        }
+    }
+    if (vm.uiMaterial.kind == MaterialKind.NONE) {
+        Spacer(Modifier.height(5.dp))
+        Text(stringResource(R.string.mat_none_hint), color = Sub, fontSize = 10.5.sp)
+    }
+    Spacer(Modifier.height(9.dp))
+}
+
 @Composable
 private fun DecorSection(vm: EditorViewModel) {
     Spacer(Modifier.height(16.dp))
@@ -875,6 +931,48 @@ private fun ArtAreaEditor(vm: EditorViewModel) {
 private fun RoomSection(vm: EditorViewModel) {
     val context = LocalContext.current
     Text(
+        stringResource(R.string.levels_title),
+        color = Dim,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        vm.levelList.forEach { l ->
+            Chip(vm.levelTitle(l), l == vm.activeLevel) { vm.switchLevel(l) }
+        }
+        IconChip(BaIcons.Plus, stringResource(R.string.add_level)) { vm.addLevel() }
+        if (vm.levelList.any { it < vm.activeLevel }) {
+            Chip(stringResource(R.string.ghost_below), vm.showGhost) { vm.toggleGhost() }
+        }
+        if (vm.levelList.size > 1) {
+            IconChip(BaIcons.Close, stringResource(R.string.del_level), warn = true) {
+                vm.deleteActiveLevel()
+            }
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(stringResource(R.string.level_hint), color = Sub, fontSize = 10.sp, lineHeight = 14.sp)
+    Spacer(Modifier.height(14.dp))
+    // быстрый старт: типовой размер одним тапом — новичку не с чего чертить,
+    // мастеру на объекте некогда; точные стороны правятся цифрами как обычно
+    Text(stringResource(R.string.room_presets), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ROOM_PRESETS.forEach { (res, wh) ->
+            Chip(
+                stringResource(res) + " " + fmt(wh.first) + "×" + fmt(wh.second),
+            ) { vm.applyRoomPreset(wh.first, wh.second) }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Text(
         stringResource(R.string.rooms_title),
         color = Dim,
         fontSize = 10.sp,
@@ -969,17 +1067,17 @@ private fun RoomSection(vm: EditorViewModel) {
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // не фикс: любая толщина цифрой — гипсокартон 7, кирпич 12, несущая 38…
+        NumField(
+            stringResource(R.string.thick_lbl), vm.wallThicknessM * 100,
+            stringResource(R.string.unit_cm), 2.0, 60.0,
+        ) { vm.updateWallThickness(it / 100.0) }
         listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
             Chip(
                 (t2 * 100).toInt().toString(),
                 abs(vm.wallThicknessM - t2) < 0.005,
             ) { vm.updateWallThickness(t2) }
         }
-        // не фикс: любая толщина цифрой — гипсокартон 7, кирпич 12, несущая 38…
-        NumField(
-            stringResource(R.string.thick_lbl), vm.wallThicknessM * 100,
-            stringResource(R.string.unit_cm), 2.0, 60.0,
-        ) { vm.updateWallThickness(it / 100.0) }
     }
 
     Spacer(Modifier.height(14.dp))
@@ -1024,6 +1122,242 @@ private fun RoomSection(vm: EditorViewModel) {
             }
             Box(Modifier.padding(bottom = 6.dp)) {
                 IconChip(BaIcons.Close, stringResource(R.string.del_cutout), warn = true) { vm.deleteSelectedCutout() }
+            }
+        }
+    }
+    ArcsFold(vm)
+    StairsFold(vm)
+}
+
+/** Дуги и круглые комнаты: контур гнётся, движок работает с частой ломаной. */
+@Composable
+private fun ArcsFold(vm: EditorViewModel) {
+    val m = stringResource(R.string.unit_m)
+    val mm = stringResource(R.string.unit_mm)
+    var dia by remember { mutableStateOf(3.0) }
+    var axA by remember { mutableStateOf(4.0) }
+    var axB by remember { mutableStateOf(2.5) }
+    var sag by remember { mutableStateOf(300.0) }
+    Spacer(Modifier.height(8.dp))
+    Fold(
+        vm, "room.arcs", stringResource(R.string.arc_title),
+        if (vm.arcRuns.isEmpty()) null else stringResource(R.string.arc_found, vm.arcRuns.size),
+    ) {
+        Text(stringResource(R.string.arc_hint), color = Sub, fontSize = 10.5.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField(stringResource(R.string.arc_dia), dia, m, 0.5, 20.0) { dia = it }
+            NumField(stringResource(R.string.arc_axis_a), axA, m, 0.5, 20.0) { axA = it }
+            NumField(stringResource(R.string.arc_axis_b), axB, m, 0.5, 20.0) { axB = it }
+        }
+        Spacer(Modifier.height(7.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(stringResource(R.string.arc_round)) { vm.makeRoundRoom(dia) }
+            Chip(stringResource(R.string.arc_oval)) { vm.makeOvalRoom(axA, axB) }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            stringResource(R.string.arc_pick_wall),
+            color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField(stringResource(R.string.arc_sag), sag, mm, 10.0, 5000.0) { sag = it }
+            Box(Modifier.padding(top = 16.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Chip(stringResource(R.string.arc_bend_out)) { vm.bendSelectedWall(sag) }
+                    Chip(stringResource(R.string.arc_bend_in)) { vm.bendSelectedWall(-sag) }
+                }
+            }
+        }
+        if (vm.arcRuns.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            vm.arcRuns.forEach { run ->
+                Line("R " + fmt(run.radiusM) + " " + m, fmt(run.lengthM) + " " + m)
+            }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                stringResource(
+                    R.string.arc_tile_advice,
+                    Arcs.maxTileOnArc(vm.arcRuns.minOf { it.radiusM }).toInt(),
+                ),
+                color = Sub, fontSize = 10.5.sp,
+            )
+        }
+    }
+}
+
+/** Ступени и крыльцо: марш на другой этаж, подиум, входные ступени. */
+@Composable
+private fun StairsFold(vm: EditorViewModel) {
+    val pcs = stringResource(R.string.pcs)
+    val mm = stringResource(R.string.unit_mm)
+    val m = stringResource(R.string.unit_m)
+    val m2 = stringResource(R.string.unit_m2)
+    Spacer(Modifier.height(8.dp))
+    Fold(
+        vm, "room.stairs", stringResource(R.string.stairs_title),
+        if (vm.stairs.isEmpty()) {
+            null
+        } else {
+            vm.stairs.size.toString() + " · " + vm.stairsPlans.sumOf { it.second.piecesTotal } + " " + pcs
+        },
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Chip(stringResource(R.string.add_stairs)) { vm.addStairs() }
+            Chip(stringResource(R.string.outdoor), vm.outdoor) { vm.toggleOutdoor() }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            stringResource(if (vm.outdoor) R.string.outdoor_on_hint else R.string.stairs_hint),
+            color = Sub, fontSize = 10.5.sp,
+        )
+        if (vm.stairs.size > 1) {
+            Spacer(Modifier.height(7.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                vm.stairs.forEachIndexed { i, _ ->
+                    Chip(stringResource(R.string.stairs_n, i + 1), i == vm.selectedStairsIndex) { vm.selectStairs(i) }
+                }
+            }
+        }
+        val st = vm.selectedStairs
+        val plan = vm.selectedStairsPlan
+        if (st == null || plan == null) {
+            if (vm.stairs.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.stairs_pick), color = Sub, fontSize = 10.5.sp)
+            }
+        } else {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumField(stringResource(R.string.stairs_width), st.widthM, m, 0.3, 6.0) { vm.setStairsWidth(it) }
+                NumField(stringResource(R.string.stairs_count), st.steps.toDouble(), pcs, 1.0, 40.0) { vm.setStairsSteps(it) }
+            }
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumField(stringResource(R.string.stairs_tread), st.treadMm, mm, 150.0, 600.0) { vm.setStairsTread(it) }
+                NumField(stringResource(R.string.stairs_riser), st.riserMm, mm, 80.0, 300.0) { vm.setStairsRiser(it) }
+            }
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumField(stringResource(R.string.stairs_rise), st.riseM, m, 0.1, 6.0) { vm.fitStairsToHeight(it) }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.stairs_rise_hint), color = Sub, fontSize = 10.5.sp)
+            Spacer(Modifier.height(7.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Chip(stringResource(R.string.stairs_turn)) { vm.rotateStairs() }
+                Chip(stringResource(R.string.stairs_risers), st.risers) { vm.toggleStairsRisers() }
+                Chip(stringResource(R.string.stairs_floor_under), !st.cutsFloor) { vm.toggleStairsFloor() }
+                Chip(stringResource(R.string.stairs_take_mat)) { vm.stairsTakeRoomMaterial() }
+                IconChip(BaIcons.Close, stringResource(R.string.stairs_del), warn = true) { vm.deleteSelectedStairs() }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.stairs_tread_fin), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(5.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                STAIR_FINISHES.forEach { (f, res) ->
+                    Chip(stringResource(res), st.treadFinish == f) { vm.setStairsTreadFinish(f) }
+                }
+            }
+            if (st.risers) {
+                Spacer(Modifier.height(7.dp))
+                Text(stringResource(R.string.stairs_riser_fin), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(5.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    STAIR_FINISHES.forEach { (f, res) ->
+                        Chip(stringResource(res), st.riserFinish == f) { vm.setStairsRiserFinish(f) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.stairs_to), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(5.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Chip(stringResource(R.string.stairs_porch), st.toLevel < 0) { vm.setStairsLevel(-1) }
+                vm.levelList.forEach { l ->
+                    Chip(vm.levelTitle(l), st.toLevel == l) { vm.setStairsLevel(l) }
+                }
+            }
+            Spacer(Modifier.height(9.dp))
+            Line(
+                stringResource(R.string.stairs_run),
+                fmt(st.runM) + " " + m + "  ·  " + fmt(st.riseM) + " " + m,
+            )
+            Line(stringResource(R.string.stairs_area), fmt(plan.areaM2) + " " + m2)
+            if (plan.treadPieces > 0) {
+                Line(stringResource(R.string.stairs_tread_pcs), plan.treadPieces.toString() + " " + pcs)
+            }
+            if (st.treadFinish == StairsFinish.WOOD) {
+                Line(
+                    stringResource(R.string.stairs_boards),
+                    plan.treadPieces.toString() + " × " + (st.widthM * 1000).toInt() + "×" + st.treadMm.toInt() + " " + mm,
+                )
+            }
+            if (st.risers && st.riserFinish == StairsFinish.WOOD) {
+                Line(
+                    stringResource(R.string.stairs_riser_boards),
+                    plan.riserPieces.toString() + " × " + (st.widthM * 1000).toInt() + "×" + st.riserMm.toInt() + " " + mm,
+                )
+            }
+            val cut = vm.selectedStairsCut
+            if (cut != null && st.treadFinish == StairsFinish.TILE) {
+                Line(stringResource(R.string.stairs_whole), cut.wholeTreadTiles.toString() + " " + pcs)
+                if (cut.treadCuts > 0) {
+                    Line(
+                        stringResource(R.string.stairs_edge),
+                        cut.treadCuts.toString() + " × " + cut.treadCutMm.toInt() + " " + mm + "  ·  " +
+                            stringResource(R.string.stairs_from_n, cut.treadTiles, cut.perTreadTile),
+                    )
+                }
+            }
+            if (plan.riserPieces > 0 && st.riserFinish == StairsFinish.TILE) {
+                Line(
+                    stringResource(R.string.stairs_riser_pcs),
+                    plan.riserPieces.toString() + " " + pcs + "  ·  " +
+                        stringResource(R.string.stairs_from_tiles, plan.tilesForRisers, plan.stripsPerTile),
+                )
+            }
+            if (plan.buyPieces > 0) {
+                Line(stringResource(R.string.buy), plan.buyPieces.toString() + " " + pcs, Acc2)
+            }
+            if (plan.cutMm > 1.0 && st.treadFinish == StairsFinish.TILE) {
+                Line(stringResource(R.string.stairs_cut), plan.cutMm.toInt().toString() + " " + mm, Warn)
+            }
+            Line(
+                stringResource(R.string.stairs_formula),
+                plan.formulaMm.toInt().toString() + " " + mm,
+                if (plan.comfy) Txt else Warn,
+            )
+            if (!plan.comfy) {
+                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.stairs_formula_warn), color = Warn, fontSize = 10.5.sp)
+            }
+            if (plan.treadTooShort) {
+                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.stairs_tread_warn), color = Warn, fontSize = 10.5.sp)
+            }
+            if (plan.riserBad) {
+                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.stairs_riser_warn), color = Warn, fontSize = 10.5.sp)
             }
         }
     }
@@ -1155,6 +1489,22 @@ private fun OffcutsSection(vm: EditorViewModel) {
                 )
             }
         }
+    }
+    if (vm.hiddenTiles.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Line(
+            stringResource(R.string.hidden_zone),
+            vm.hiddenTiles.size.toString() + " " + stringResource(R.string.pcs) +
+                (
+                    if (vm.hiddenCutNumbers.isNotEmpty()) {
+                        "  ·  №" + vm.hiddenCutNumbers.joinToString(", №")
+                    } else {
+                        ""
+                    }
+                    ),
+            Good,
+        )
+        Text(stringResource(R.string.hidden_zone_tip), color = Sub, fontSize = 10.5.sp)
     }
     Spacer(Modifier.height(8.dp))
     Line(
@@ -1290,18 +1640,18 @@ private fun SurfacesSection(vm: EditorViewModel) {
             Chip(stringResource(R.string.same_as_all), own == null) {
                 vm.updateWallThicknessOf(active, null)
             }
-            listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
-                Chip(
-                    (t2 * 100).toInt().toString(),
-                    own != null && abs(own - t2) < 0.005,
-                ) { vm.updateWallThicknessOf(active, t2) }
-            }
             // индивидуально: своя толщина именно этой стены, цифрой
             NumField(
                 stringResource(R.string.thick_lbl),
                 (own ?: vm.wallThicknessM) * 100,
                 stringResource(R.string.unit_cm), 2.0, 60.0,
             ) { vm.updateWallThicknessOf(active, it / 100.0) }
+            listOf(0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40).forEach { t2 ->
+                Chip(
+                    (t2 * 100).toInt().toString(),
+                    own != null && abs(own - t2) < 0.005,
+                ) { vm.updateWallThicknessOf(active, t2) }
+            }
         }
     }
 
@@ -1519,21 +1869,79 @@ private fun CalcSection(vm: EditorViewModel) {
         stringResource(R.string.perimeter),
         String.format(Locale.getDefault(), "%.2f", polygonPerimeter(vm.room.points)) + " " + stringResource(R.string.unit_m),
     )
-    Line(stringResource(R.string.full_tiles), l.fullCount.toString())
+    val pp = vm.plankPlan
+    val mat = vm.uiMaterial
+    Line(stringResource(if (pp != null) R.string.plank_full else R.string.full_tiles), l.fullCount.toString())
     val cutPct = if (l.totalCount > 0) l.cutCount * 100.0 / l.totalCount else 0.0
     Line(
-        stringResource(R.string.cut_tiles),
+        stringResource(if (pp != null) R.string.plank_cut else R.string.cut_tiles),
         l.cutCount.toString() + "  (" + String.format(Locale.getDefault(), "%.0f", cutPct) + "% " +
             stringResource(R.string.cut_share) + ")",
         Warn,
     )
-    Line(stringResource(R.string.total_tiles), l.totalCount.toString())
+    Line(stringResource(if (pp != null) R.string.plank_total else R.string.total_tiles), l.totalCount.toString())
 
     Spacer(Modifier.height(10.dp))
-    val glue = MaterialCalc.tileAdhesiveKg(l.areaM2, vm.tile)
-    val groutKg = MaterialCalc.groutKg(l.areaM2, vm.tile)
-    Line(stringResource(R.string.need_glue), String.format(Locale.getDefault(), "%.0f", glue) + " " + stringResource(R.string.unit_kg))
-    Line(stringResource(R.string.need_grout), String.format(Locale.getDefault(), "%.1f", groutKg) + " " + stringResource(R.string.unit_kg))
+    if (pp == null) {
+        val glue = MaterialCalc.tileAdhesiveKg(l.areaM2, vm.tile)
+        val groutKg = MaterialCalc.groutKg(l.areaM2, vm.tile)
+        Line(stringResource(R.string.need_glue), String.format(Locale.getDefault(), "%.0f", glue) + " " + stringResource(R.string.unit_kg))
+        Line(stringResource(R.string.need_grout), String.format(Locale.getDefault(), "%.1f", groutKg) + " " + stringResource(R.string.unit_kg))
+    } else {
+        Text(stringResource(R.string.plank_title), color = Acc2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Line(stringResource(R.string.plank_rows), pp.rowCount.toString())
+        Line(
+            stringResource(R.string.plank_need),
+            pp.planksWithReserve.toString() + " " + stringResource(R.string.pcs),
+            Acc2,
+        )
+        if (pp.packs > 0) {
+            Line(
+                stringResource(R.string.plank_packs),
+                pp.packs.toString() + " × " + String.format(Locale.getDefault(), "%.2f", mat.packM2) +
+                    " " + stringResource(R.string.unit_m2),
+                Acc2,
+            )
+        }
+        Line(
+            stringResource(R.string.plank_waste),
+            String.format(Locale.getDefault(), "%.1f", pp.wastePct) + "%",
+            if (pp.wastePct > 12.0) Warn else Txt,
+        )
+        if (pp.savedPlanks > 0) {
+            Line(stringResource(R.string.plank_saved), pp.savedPlanks.toString() + " " + stringResource(R.string.pcs))
+        }
+        if (pp.leftoversMm.isNotEmpty()) {
+            Line(
+                stringResource(R.string.plank_left),
+                pp.leftoversMm.take(4).joinToString(" · ") { it.toInt().toString() } +
+                    " " + stringResource(R.string.unit_mm),
+            )
+        }
+        Line(
+            stringResource(R.string.plank_underlay),
+            String.format(Locale.getDefault(), "%.2f", pp.floorM2) + " " + stringResource(R.string.unit_m2),
+        )
+        if (pp.shortLastRows > 0) {
+            Spacer(Modifier.height(5.dp))
+            Text(
+                stringResource(R.string.plank_short_warn, pp.shortLastRows, mat.minEndMm.toInt()),
+                color = Warn, fontSize = 10.5.sp,
+            )
+        }
+        if (pp.tightJoints > 0) {
+            Spacer(Modifier.height(5.dp))
+            Text(
+                stringResource(R.string.plank_tight_warn, mat.staggerMm.toInt()),
+                color = Warn, fontSize = 10.5.sp,
+            )
+        }
+        if (pp.estimated) {
+            Spacer(Modifier.height(5.dp))
+            Text(stringResource(R.string.plank_hb_hint), color = Sub, fontSize = 10.5.sp)
+        }
+    }
 
     // ---------- плинтус: сегменты, распил по хлыстам, советы по остаткам ----------
     Fold(

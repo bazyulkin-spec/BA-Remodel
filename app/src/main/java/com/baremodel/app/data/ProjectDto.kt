@@ -9,6 +9,8 @@ import com.baremodel.core.TileSpec
 import com.baremodel.core.Cutout
 import com.baremodel.core.Finish
 import com.baremodel.core.Furniture
+import com.baremodel.core.MaterialSpec
+import com.baremodel.core.StairsSpec
 import kotlinx.serialization.Serializable
 
 /** Зона: участок комнаты со своей плиткой. Прямоугольник в мировых координатах. */
@@ -22,6 +24,7 @@ data class ZoneDto(
     val pattern: PatternSpec = PatternSpec(),
     val colorArgb: Int = -1,
     val variation: Boolean = false,
+    val material: MaterialSpec = MaterialSpec(),
 )
 
 /** Одна комната квартиры: контур и все её настройки плитки. */
@@ -47,6 +50,24 @@ data class RoomDto(
     val zones: List<ZoneDto> = emptyList(),
     val tileColors: Map<String, Int> = emptyMap(),
     val wallThickness: Map<String, Double> = emptyMap(),
+    val material: MaterialSpec = MaterialSpec(),
+    val stairs: List<StairsSpec> = emptyList(),
+    /** Крыльцо/терраса: на улице нет стен, потолка и плинтуса. */
+    val outdoor: Boolean = false,
+)
+
+/**
+ * Этаж: свой набор комнат, своя мебель и свои статусы работ.
+ * Активный этаж дополнительно лежит в [ProjectDto.rooms] — для совместимости
+ * со старыми файлами, где этажей не было вовсе.
+ */
+@Serializable
+data class LevelDto(
+    val index: Int = 0,
+    val name: String = "",
+    val rooms: List<RoomDto> = emptyList(),
+    val furniture: List<Furniture> = emptyList(),
+    val workStatus: Map<String, Int> = emptyMap(),
 )
 
 /** Цены мастера: материалы и работа. Нули означают «не считать». */
@@ -92,5 +113,11 @@ data class ProjectDto(
     val workStatus: Map<String, Int> = emptyMap(),
     val rooms: List<RoomDto> = emptyList(),
     val activeRoom: Int = 0,
+    val material: MaterialSpec = MaterialSpec(),
+    val stairs: List<StairsSpec> = emptyList(),
+    val outdoor: Boolean = false,
+    /** Все этажи, включая активный. Пусто или один элемент — одноэтажный проект. */
+    val levels: List<LevelDto> = emptyList(),
+    val activeLevel: Int = 0,
     val savedAt: Long = 0L,
 )

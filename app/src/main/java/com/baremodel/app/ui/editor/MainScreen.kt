@@ -484,7 +484,8 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
 
             // режим «Комната»: проёмы ставятся в два касания — тип, затем стена
             Fade(
-                visible = vm.roomMode && !vm.drawMode && vm.selection == null,
+                visible = vm.roomMode && !vm.drawMode && vm.selection == null &&
+                    vm.openingSel == null,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 68.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -519,6 +520,50 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                                 .background(Panel2.copy(alpha = 0.92f))
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                         )
+                    }
+                }
+            }
+
+            // выбранный тапом проём: изменить размер или удалить
+            vm.openingSel?.let { selO ->
+                val wId = "wall-" + (selO.first + 1)
+                val oSel = vm.openingsOf(wId).getOrNull(selO.second)
+                val kSel = vm.openingKindsOf(wId).getOrNull(selO.second)
+                    ?: if ((oSel?.y ?: 1.0) < 0.05) OPENING_DOOR else OPENING_WINDOW
+                Fade(
+                    visible = oSel != null,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 68.dp),
+                ) {
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Panel2.copy(alpha = 0.95f))
+                            .border(
+                                1.dp,
+                                openingTone(kSel).copy(alpha = 0.6f),
+                                RoundedCornerShape(12.dp),
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            stringResource(
+                                when (kSel) {
+                                    OPENING_WINDOW -> R.string.kind_window
+                                    OPENING_BALCONY -> R.string.kind_balcony
+                                    OPENING_ENTRY -> R.string.kind_entry
+                                    OPENING_PASSAGE -> R.string.kind_passage
+                                    else -> R.string.kind_door
+                                },
+                            ) + " · " + stringResource(R.string.surf_wall) + " " + (selO.first + 1),
+                            color = openingTone(kSel),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Chip(stringResource(R.string.op_edit)) { vm.editSelectedOpening() }
+                        Chip(stringResource(R.string.op_delete)) { vm.deleteSelectedOpening() }
+                        Chip("✕") { vm.clearOpeningSel() }
                     }
                 }
             }
@@ -614,6 +659,12 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                                 }
                             }
                         }
+                        is Selection.Stair -> {
+                            Chip("90°") { vm.rotateStairs() }
+                            IconChip(BaIcons.Close, stringResource(R.string.stairs_del), warn = true) {
+                                vm.deleteSelectedStairs()
+                            }
+                        }
                         null -> Unit
                     }
                 }
@@ -679,7 +730,13 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                     )
                 } else {
                     // шаг 2: размер — пресеты как в жизни + свои цифры
-                    val defs = defaultOpeningSize(wz.kind)
+                    val existingO = if (wz.editIndex >= 0) {
+                        vm.openingsOf("wall-" + (wz.wall + 1)).getOrNull(wz.editIndex)
+                    } else {
+                        null
+                    }
+                    val defs = existingO?.let { Triple(it.w, it.h, it.y) }
+                        ?: defaultOpeningSize(wz.kind)
                     var wIn by remember(wz) {
                         mutableStateOf(String.format(java.util.Locale.US, "%.2f", defs.first))
                     }

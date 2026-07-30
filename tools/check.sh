@@ -130,16 +130,47 @@ done
 
 echo "== 7. @Composable внутри не-inline лямбд (joinToString/run по ссылке) =="
 # joinToString НЕ inline: stringResource/painterResource внутри её лямбды не компилируется.
-# Грубая эвристика: composable-вызов в пределах 8 строк после joinToString( в том же файле.
+# Эвристика: composable-вызов в пределах 8 строк после joinToString( с ОТКРЫТОЙ лямбдой.
+# Лямбда, закрытая на той же строке, безопасна — иначе ловились соседние строки выражения.
 BAD7=$(find app/src -name "*.kt" -exec awk '
   FNR==1 { w = 0 }
-  /joinToString\(/ { w = 8 }
+  /joinToString[^{]*[{]/ { w = ($0 ~ /}/) ? 0 : 8 }
   w > 0 && /stringResource\(|painterResource\(/ {
     print "  " FILENAME ":" FNR " composable внутри joinToString?"
   }
   { if (w > 0) w-- }
 ' {} + | tee /dev/stderr | wc -l)
 if [ "$BAD7" -gt 0 ]; then fail=1; fi
+
+echo "== 8. все варианты Selection покрыты в when (иначе Kotlin 2.x не соберёт) =="
+python3 - <<'PY8' || fail=1
+import re, sys
+E = 'app/src/main/java/com/baremodel/app/ui/editor/'
+vm = open(E + 'EditorViewModel.kt', encoding='utf-8').read()
+subs = set(re.findall(r'data class (\w+)\([^)]*\)\s*:\s*Selection', vm))
+bad = 0
+src = open(E + 'MainScreen.kt', encoding='utf-8').read()
+for m in re.finditer(r'when \((?:sel|selection)\)\s*\{', src):
+    # тело when по балансу скобок, иначе else -> из чужого when всё маскирует
+    k = src.index("{", m.start())
+    depth = 0
+    while k < len(src):
+        if src[k] == "{":
+            depth += 1
+        elif src[k] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        k += 1
+    body = src[m.start():k]
+    if "else ->" in body:
+        continue
+    for name in sorted(subs):
+        if ("Selection." + name) not in body:
+            print("  НЕ ПОКРЫТ Selection." + name + " в when (sel)"); bad += 1
+print("  вариантов Selection:", len(subs), "| не покрыто:", bad)
+sys.exit(1 if bad else 0)
+PY8
 
 [ $fail -eq 0 ] && echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" || echo "ЕСТЬ ЗАМЕЧАНИЯ"
 exit $fail

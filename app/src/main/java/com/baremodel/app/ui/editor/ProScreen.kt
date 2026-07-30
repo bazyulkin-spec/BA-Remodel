@@ -1,6 +1,7 @@
 package com.baremodel.app.ui.editor
 
 import android.content.Intent
+import com.baremodel.app.data.CrashGuard
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -263,6 +264,38 @@ fun ProScreen() {
 
         Spacer(Modifier.height(16.dp))
         DonateCard()
+        // тихая строка: видна только после реального сбоя, никаких диалогов на старте
+        run {
+            val ctx = LocalContext.current
+            val report = remember { CrashGuard.peek(ctx) }
+            var sent by remember { mutableStateOf(false) }
+            if (report != null && !sent) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(Panel2)
+                        .border(1.dp, LineC, RoundedCornerShape(11.dp))
+                        .clickable {
+                            CrashGuard.share(ctx, report, ctx.getString(R.string.crash_send))
+                            CrashGuard.clear(ctx)
+                            sent = true
+                        }
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(
+                            stringResource(R.string.crash_send),
+                            color = Txt, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(stringResource(R.string.crash_quiet_note), color = Sub, fontSize = 10.5.sp)
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(18.dp))
         Text(
             stringResource(R.string.credit),

@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import com.baremodel.app.data.CrashGuard
 import com.baremodel.app.data.UiPrefs
 import com.baremodel.app.ui.editor.Entitlements
 import com.baremodel.app.ui.editor.MainScreen
@@ -22,6 +23,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        CrashGuard.install(this)
         Entitlements.init(this)
         UiPrefs.init(this)
         setContent {

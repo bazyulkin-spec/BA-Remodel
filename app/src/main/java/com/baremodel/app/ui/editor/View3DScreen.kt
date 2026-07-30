@@ -466,12 +466,17 @@ fun View3DScreen(vm: EditorViewModel) {
                             val oy0 = o.y.toFloat()
                             val oy1 = (o.y + o.h).toFloat()
                             val glass = oKind == OPENING_WINDOW || oKind == OPENING_BALCONY
+                            // смещение к камере: раньше квад уходил НАРУЖУ стены и
+                            // прятался за ней — проём было видно лишь под острым углом
+                            val omx = (ax + bx) / 2f
+                            val omz = (az + bz) / 2f
+                            val oOff = if (nx * (camX - omx) + nz * (camZ - omz) >= 0f) 0.02f else -0.02f
                             addFace(
                                 listOf(
-                                    V3(ax + ux * ox0 + nx * 0.008f, oy0, az + uz * ox0 + nz * 0.008f),
-                                    V3(ax + ux * ox1 + nx * 0.008f, oy0, az + uz * ox1 + nz * 0.008f),
-                                    V3(ax + ux * ox1 + nx * 0.008f, oy1, az + uz * ox1 + nz * 0.008f),
-                                    V3(ax + ux * ox0 + nx * 0.008f, oy1, az + uz * ox0 + nz * 0.008f),
+                                    V3(ax + ux * ox0 + nx * oOff, oy0, az + uz * ox0 + nz * oOff),
+                                    V3(ax + ux * ox1 + nx * oOff, oy0, az + uz * ox1 + nz * oOff),
+                                    V3(ax + ux * ox1 + nx * oOff, oy1, az + uz * ox1 + nz * oOff),
+                                    V3(ax + ux * ox0 + nx * oOff, oy1, az + uz * ox0 + nz * oOff),
                                 ),
                                 if (glass) Color(0xFF13202F) else Color(0xFF0A0E15),
                                 openingTone(oKind).copy(alpha = 0.7f),
@@ -543,12 +548,15 @@ fun View3DScreen(vm: EditorViewModel) {
                                     val oy0 = o.y.toFloat()
                                     val oy1 = (o.y + o.h).toFloat()
                                     val glass2 = k2 == OPENING_WINDOW || k2 == OPENING_BALCONY
+                                    val omx2 = (ax + bx) / 2f
+                                    val omz2 = (az + bz) / 2f
+                                    val oOff2 = if (nx * (camX - omx2) + nz * (camZ - omz2) >= 0f) 0.02f else -0.02f
                                     addFace(
                                         listOf(
-                                            V3(ax + ux2 * ox0 + nx * 0.008f, oy0, az + uz2 * ox0 + nz * 0.008f),
-                                            V3(ax + ux2 * ox1 + nx * 0.008f, oy0, az + uz2 * ox1 + nz * 0.008f),
-                                            V3(ax + ux2 * ox1 + nx * 0.008f, oy1, az + uz2 * ox1 + nz * 0.008f),
-                                            V3(ax + ux2 * ox0 + nx * 0.008f, oy1, az + uz2 * ox0 + nz * 0.008f),
+                                            V3(ax + ux2 * ox0 + nx * oOff2, oy0, az + uz2 * ox0 + nz * oOff2),
+                                            V3(ax + ux2 * ox1 + nx * oOff2, oy0, az + uz2 * ox1 + nz * oOff2),
+                                            V3(ax + ux2 * ox1 + nx * oOff2, oy1, az + uz2 * ox1 + nz * oOff2),
+                                            V3(ax + ux2 * ox0 + nx * oOff2, oy1, az + uz2 * ox0 + nz * oOff2),
                                         ),
                                         if (glass2) Color(0xFF13202F) else Color(0xFF0A0E15),
                                         openingTone(k2).copy(alpha = 0.7f),
@@ -715,6 +723,77 @@ fun View3DScreen(vm: EditorViewModel) {
                     }
                 }
 
+                // ступени: марш в объёме, каждая ступень — свой массив от площадки
+                if (vm.stairs.isNotEmpty()) {
+                    val tread = Color(0xFF2A3548)
+
+                    fun stairBox(
+                        bx0: Float, bz0: Float, bx1: Float, bz1: Float,
+                        y0: Float, y1: Float, c: Color, topC: Color,
+                    ) {
+                        addFace(listOf(V3(bx0, y0, bz0), V3(bx1, y0, bz0), V3(bx1, y1, bz0), V3(bx0, y1, bz0)), shade(c, 0.9f), LineC)
+                        addFace(listOf(V3(bx1, y0, bz0), V3(bx1, y0, bz1), V3(bx1, y1, bz1), V3(bx1, y1, bz0)), shade(c, 0.78f), LineC)
+                        addFace(listOf(V3(bx1, y0, bz1), V3(bx0, y0, bz1), V3(bx0, y1, bz1), V3(bx1, y1, bz1)), shade(c, 1.05f), LineC)
+                        addFace(listOf(V3(bx0, y0, bz1), V3(bx0, y0, bz0), V3(bx0, y1, bz0), V3(bx0, y1, bz1)), shade(c, 0.84f), LineC)
+                        addFace(
+                            listOf(V3(bx0, y1, bz0), V3(bx1, y1, bz0), V3(bx1, y1, bz1), V3(bx0, y1, bz1)),
+                            shade(topC, 0.95f),
+                            Acc2.copy(alpha = 0.5f),
+                        )
+                    }
+
+                    vm.stairs.forEach { st ->
+                        // верх — по отделке проступи: дерево тёплое, бетон серый, отметка тусклая
+                        val topC = when (st.treadFinish) {
+                            com.baremodel.core.StairsFinish.TILE -> vm.tileColor.copy(alpha = 1f)
+                            com.baremodel.core.StairsFinish.WOOD -> Color(0xFF8A6B4A)
+                            com.baremodel.core.StairsFinish.CONCRETE -> Color(0xFF6E7580)
+                            com.baremodel.core.StairsFinish.NONE -> Color(0xFF3A4356)
+                        }
+                        val t = (st.treadMm / 1000.0).toFloat()
+                        val r = (st.riserMm / 1000.0).toFloat()
+                        val x0 = st.x.toFloat()
+                        val z0 = st.y.toFloat()
+                        val x1 = (st.x + st.w).toFloat()
+                        val z1 = (st.y + st.h).toFloat()
+                        for (k in 0 until st.steps) {
+                            val top = r * (k + 1)
+                            when (st.dirDeg) {
+                                90 -> stairBox(x0 + t * k, z0, x0 + t * (k + 1), z1, 0f, top, tread, topC)
+                                180 -> stairBox(x0, z1 - t * (k + 1), x1, z1 - t * k, 0f, top, tread, topC)
+                                270 -> stairBox(x1 - t * (k + 1), z0, x1 - t * k, z1, 0f, top, tread, topC)
+                                else -> stairBox(x0, z0 + t * k, x1, z0 + t * (k + 1), 0f, top, tread, topC)
+                            }
+                        }
+                    }
+                }
+
+                // этаж снизу: полупрозрачные контуры на этаж ниже — стены ставить по ним
+                val ghostY = -vm.wallHeightM.toFloat()
+                vm.ghostRooms.forEach { gr ->
+                    val pts = gr.spec.points
+                    if (pts.size < 3) return@forEach
+                    addFace(
+                        pts.map { V3(it.x.toFloat(), ghostY, it.y.toFloat()) },
+                        Color(0x22A0ADC2),
+                        Color(0x776E7C93),
+                        forceBack = true,
+                    )
+                    // вертикальные связи по углам: видно, что это именно этаж ниже
+                    pts.forEach { pt ->
+                        addFace(
+                            listOf(
+                                V3(pt.x.toFloat() - 0.02f, ghostY, pt.y.toFloat()),
+                                V3(pt.x.toFloat() + 0.02f, ghostY, pt.y.toFloat()),
+                                V3(pt.x.toFloat() + 0.02f, 0f, pt.y.toFloat()),
+                                V3(pt.x.toFloat() - 0.02f, 0f, pt.y.toFloat()),
+                            ),
+                            Color(0x1AA0ADC2),
+                            forceBack = true,
+                        )
+                    }
+                }
+
                 // дальние грани рисуются первыми
                 faces.sortByDescending { it.depth }
                 faces.forEach { face ->
@@ -832,16 +911,16 @@ fun View3DScreen(vm: EditorViewModel) {
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                listOf(2.4, 2.7, 3.0).forEach { h ->
-                    Chip("$h " + stringResource(R.string.unit_m), abs(vm.wallHeightM - h) < 0.01) {
-                        vm.setWallHeight(h)
-                    }
-                }
                 // не фикс: своя высота потолка цифрой
                 NumField(
                     stringResource(R.string.wall_height), vm.wallHeightM,
                     stringResource(R.string.unit_m), 1.8, 4.0,
                 ) { vm.setWallHeight(it) }
+                listOf(2.4, 2.7, 3.0).forEach { h ->
+                    Chip("$h " + stringResource(R.string.unit_m), abs(vm.wallHeightM - h) < 0.01) {
+                        vm.setWallHeight(h)
+                    }
+                }
                 Chip(stringResource(R.string.walls_low), lowWalls) { lowWalls = !lowWalls }
                 Chip(stringResource(R.string.walls_ghost), wallsGhost) { wallsGhost = !wallsGhost }
                 Chip(stringResource(R.string.reset_view)) {

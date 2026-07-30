@@ -39,6 +39,7 @@ import com.baremodel.app.ui.theme.GroutC
 import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.Arcs
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.LocalRect
 import com.baremodel.core.Pt
@@ -71,6 +72,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
         R.string.kind_entry, R.string.kind_passage,
     ).map { stringResource(it) }
     val wmText = stringResource(R.string.wm_brand)
+    val stairUpText = stringResource(R.string.stairs_up)
+    val stairPorchText = stringResource(R.string.stairs_porch)
     val inactiveLayouts = remember(vm.rooms, vm.activeRoom) {
         vm.rooms.mapIndexed { i, r ->
             if (i == vm.activeRoom) null else TilingEngine.build(r.spec, r.tile, r.pattern)
@@ -455,6 +458,21 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                 strokeWidth = 1f * d, pathEffect = dashAx)
         }
 
+        // 4g. этаж снизу призраком: по нему выставляют стены верхнего этажа
+        val ghostDash = PathEffect.dashPathEffect(floatArrayOf(9f * d, 7f * d), 0f)
+        vm.ghostRooms.forEach { gr ->
+            val pts = gr.spec.points
+            if (pts.size < 3) return@forEach
+            val gp = Path().apply {
+                pts.forEachIndexed { gi, pt ->
+                    if (gi == 0) moveTo(sx(pt.x), sy(pt.y)) else lineTo(sx(pt.x), sy(pt.y))
+                }
+                close()
+            }
+            drawPath(gp, Color(0x14A0ADC2))
+            drawPath(gp, Color(0x8A6E7C93), style = Stroke(1.4f * d, pathEffect = ghostDash))
+        }
+
         // 4c. остальные комнаты квартиры: тускло, с подписью; тап переключает
         vm.rooms.forEachIndexed { ri, r ->
             if (ri == vm.activeRoom) return@forEachIndexed
@@ -687,6 +705,57 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                 if (vm.roomMode) {
                     drawRect(col, topLeft = Offset(br.x - 6f * d, br.y - 6f * d), size = Size(12f * d, 12f * d))
                 }
+            }
+        }
+
+        // 6st. ступени: рёбра ступеней, стрелка подъёма и подпись, куда ведёт
+        val selStair = (vm.selection as? Selection.Stair)?.i
+        vm.stairs.forEachIndexed { i, st ->
+            val tl = Offset(sx(st.x), sy(st.y))
+            val br = Offset(sx(st.x + st.w), sy(st.y + st.h))
+            val stw = br.x - tl.x
+            val sth = br.y - tl.y
+            if (stw <= 1f || sth <= 1f) return@forEachIndexed
+            val col = if (i == selStair) Warn else Acc2
+            drawRect(Color(0x40070E1A), topLeft = tl, size = Size(stw, sth))
+            drawRect(col.copy(alpha = 0.95f), topLeft = tl, size = Size(stw, sth), style = Stroke(2f * d))
+            // рёбра ступеней: видно, где кончается одна проступь и начинается другая
+            for (k in 0 until st.steps - 1) {
+                val e = st.edge(k)
+                drawLine(
+                    col.copy(alpha = 0.65f),
+                    Offset(sx(e.first.x), sy(e.first.y)),
+                    Offset(sx(e.second.x), sy(e.second.y)),
+                    strokeWidth = 1.4f * d,
+                )
+            }
+            // стрелка подъёма: от нижней ступени к верхней
+            val base = st.edge(-1)
+            val top = st.edge(st.steps - 1)
+            val from = Offset(sx((base.first.x + base.second.x) / 2), sy((base.first.y + base.second.y) / 2))
+            val to = Offset(sx((top.first.x + top.second.x) / 2), sy((top.first.y + top.second.y) / 2))
+            val vx = to.x - from.x
+            val vy = to.y - from.y
+            val vlen = kotlin.math.sqrt(vx * vx + vy * vy)
+            if (vlen > 6f) {
+                val ux = vx / vlen
+                val uy = vy / vlen
+                val tip = Offset(from.x + ux * (vlen - 3f * d), from.y + uy * (vlen - 3f * d))
+                drawLine(col, from, tip, strokeWidth = 2.2f * d)
+                val a = 7f * d
+                drawLine(col, tip, Offset(tip.x - ux * a - uy * a * 0.6f, tip.y - uy * a + ux * a * 0.6f), strokeWidth = 2.2f * d)
+                drawLine(col, tip, Offset(tip.x - ux * a + uy * a * 0.6f, tip.y - uy * a - ux * a * 0.6f), strokeWidth = 2.2f * d)
+            }
+            // подпись: «Вверх, этаж 2» или «Крыльцо» — постороннему сразу понятно
+            drawIntoCanvas { canvas ->
+                val sp = android.graphics.Paint(labelPaint)
+                sp.textSize = 10.5f * d
+                canvas.nativeCanvas.drawText(
+                    if (st.toLevel >= 0) stairUpText + " " + (st.toLevel + 1) else stairPorchText,
+                    (tl.x + br.x) / 2,
+                    tl.y - 5f * d,
+                    sp,
+                )
             }
         }
 
@@ -1004,9 +1073,78 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
 
         // 7. подписи размеров
         if (vm.showDims) {
+            // быстрая прикидка «на вскидку»: сколько плиток влазит по ширине (сверху)
+            // и по высоте (слева) — 7 сверху × 5 слева ≈ 35, как считает мастер
+            run {
+                val rot = ((vm.pattern.rotationDeg % 360.0) + 360.0) % 360.0
+                if (kotlin.math.abs(rot % 90.0) < 0.01 || kotlin.math.abs(rot % 90.0 - 90.0) < 0.01) {
+                    val swap = kotlin.math.abs(rot % 180.0 - 90.0) < 0.01
+                    val stepW = (
+                        (if (swap) vm.tile.heightMm else vm.tile.widthMm) +
+                            kotlin.math.max(0.0, vm.tile.groutMm)
+                        ) / 1000.0
+                    val stepH = (
+                        (if (swap) vm.tile.widthMm else vm.tile.heightMm) +
+                            kotlin.math.max(0.0, vm.tile.groutMm)
+                        ) / 1000.0
+                    if (stepW > 1e-6 && stepH > 1e-6) {
+                        val minx = pts.minOf { it.x }
+                        val maxx = pts.maxOf { it.x }
+                        val miny = pts.minOf { it.y }
+                        val maxy = pts.maxOf { it.y }
+                        val cntX = kotlin.math.ceil((maxx - minx) / stepW - 1e-9).toInt()
+                        val cntY = kotlin.math.ceil((maxy - miny) / stepH - 1e-9).toInt()
+                        fun pill(txt: String, cxp: Float, cyp: Float) {
+                            drawIntoCanvas { canvas ->
+                                val tp = android.graphics.Paint(labelPaint)
+                                tp.textSize = 10f * d
+                                tp.color = android.graphics.Color.rgb(255, 196, 92)
+                                tp.isFakeBoldText = true
+                                val tw = tp.measureText(txt)
+                                val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                                bg.color = android.graphics.Color.argb(225, 15, 22, 34)
+                                canvas.nativeCanvas.drawRoundRect(
+                                    android.graphics.RectF(
+                                        cxp - tw / 2 - 6f * d, cyp - 8.5f * d,
+                                        cxp + tw / 2 + 6f * d, cyp + 8.5f * d,
+                                    ),
+                                    7f * d, 7f * d, bg,
+                                )
+                                canvas.nativeCanvas.drawText(txt, cxp, cyp + 3.4f * d, tp)
+                            }
+                        }
+                        pill("≈$cntX", sx((minx + maxx) / 2), sy(miny) - 30f * d)
+                        pill("≈$cntY", sx(minx) - 32f * d, sy((miny + maxy) / 2))
+                    }
+                }
+            }
+            // дуги: одна метка на всю дугу вместо десятков крошечных размеров
+            val arcRuns = vm.arcRuns
+            if (arcRuns.isNotEmpty()) {
+                val cxA = pts.sumOf { it.x } / pts.size
+                val cyA = pts.sumOf { it.y } / pts.size
+                drawIntoCanvas { canvas ->
+                    val ap = android.graphics.Paint(labelPaint)
+                    ap.textSize = 11f * d
+                    for (run in arcRuns) {
+                        val mp = pts[(run.startEdge + run.edges / 2) % pts.size]
+                        val vx = mp.x - cxA
+                        val vy = mp.y - cyA
+                        val vl = kotlin.math.sqrt(vx * vx + vy * vy).coerceAtLeast(1e-6)
+                        canvas.nativeCanvas.drawText(
+                            "R " + String.format(java.util.Locale.US, "%.2f", run.radiusM) + " · " +
+                                String.format(java.util.Locale.US, "%.2f", run.lengthM) + " " + unitM,
+                            sx(mp.x + vx / vl * 0.16),
+                            sy(mp.y + vy / vl * 0.16) + 4f * d,
+                            ap,
+                        )
+                    }
+                }
+            }
             for (i in pts.indices) {
                 val a = pts[i]
                 val b = pts[(i + 1) % pts.size]
+                if (Arcs.edgeInArc(arcRuns, i, pts.size) != null) continue
                 val sa = sp(a)
                 val sb = sp(b)
                 if ((sb - sa).getDistance() < 46f * d) continue
@@ -1057,6 +1195,22 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
                     drawCircle(Color(0xFF0B1220), radius = 11f * d, center = sp(pp))
                     drawCircle(Acc2, radius = 9f * d, center = sp(pp), style = Stroke(2f * d))
                     canvas.nativeCanvas.drawText(lbl, sp(pp).x, sp(pp).y + 3.5f * d, tp)
+                }
+            }
+        }
+
+        // 6f. плитки под мебелью приглушены: скрытая зона — сюда прячь куски
+        if (vm.showFurniture && vm.hiddenTiles.isNotEmpty()) {
+            clipPath(roomPath) {
+                vm.hiddenTiles.forEach { ti ->
+                    vm.layout.tiles.getOrNull(ti)?.let { t ->
+                        val p = Path()
+                        t.corners.forEachIndexed { k, c2 ->
+                            if (k == 0) p.moveTo(sx(c2.x), sy(c2.y)) else p.lineTo(sx(c2.x), sy(c2.y))
+                        }
+                        p.close()
+                        drawPath(p, Color(0xFF0B1220).copy(alpha = 0.35f))
+                    }
                 }
             }
         }
@@ -1201,6 +1355,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
         // 8. ручки режима «Комната»
         if (vm.roomMode) {
             for (i in pts.indices) {
+                if (vm.edgeOnArc(i)) continue
                 val a = pts[i]
                 val b = pts[(i + 1) % pts.size]
                 val sa = sp(a)
@@ -1214,6 +1369,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             }
             val selV = (vm.selection as? Selection.Vertex)?.i
             pts.forEachIndexed { i, p ->
+                if (vm.vertexOnArc(i)) return@forEachIndexed // точки дуги заперты — ручек нет
                 val c = sp(p)
                 drawCircle(if (i == selV) Warn else Acc, 7f * d, c)
                 drawCircle(Color.White, 7f * d, c, style = Stroke(2f * d))

@@ -43,6 +43,8 @@ object PdfReport {
         patternLabel: String,
         watermark: Boolean = true,
         logo: Bitmap? = null,
+        stairsRows: List<Pair<String, String>> = emptyList(),
+        stairsCuts: List<String> = emptyList(),
         estimate: List<Pair<String, String>> = emptyList(),
         estimateTotal: String? = null,
         apartment: List<Pair<String, String>> = emptyList(),
@@ -229,6 +231,18 @@ object PdfReport {
             s(R.string.buy) + ": " + buyCount + " " + s(R.string.pcs) + " ≈ " + n2(buyM2) + " " + s(R.string.unit_m2),
             40f, y, bodyBold,
         )
+        if (stairsRows.isNotEmpty()) {
+            y += 19f
+            c.drawText(s(R.string.stairs_title), 40f, y, bodyBold)
+            for (row in stairsRows) {
+                y += 14f
+                c.drawText(row.first + ": " + row.second, 40f, y, body)
+            }
+            for (line in stairsCuts) {
+                y += 14f
+                c.drawText(line, 40f, y, body)
+            }
+        }
         if (thresholdPieces > 0 || pairSaved > 0) {
             // числа сходятся: покупка = целые + подрезка с парованием + пороги + запас
             y += 14f

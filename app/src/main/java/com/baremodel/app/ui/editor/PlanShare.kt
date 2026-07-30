@@ -15,6 +15,8 @@ import com.baremodel.app.R
 import com.baremodel.app.ar.renderFloorBitmap
 import com.baremodel.app.ui.theme.Good
 import com.baremodel.core.Pt
+import com.baremodel.core.Arcs
+import com.baremodel.core.StairsCalc
 import com.baremodel.core.pointInPolygon
 import java.io.File
 import java.io.FileOutputStream
@@ -229,6 +231,89 @@ object PlanShare {
             }
         }
 
+        // 2s) ступени: марш, рёбра ступеней, стрелка подъёма и краевой кусок
+        if (vm.stairs.isNotEmpty()) {
+            val stFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(70, 61, 139, 255)
+            }
+            val stEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.rgb(120, 170, 255)
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            val stStep = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(190, 150, 190, 255)
+                style = Paint.Style.STROKE
+                strokeWidth = 2f
+            }
+            val stCut = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(95, 255, 176, 32)
+            }
+            val stTxt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.rgb(233, 238, 246)
+                textAlign = Paint.Align.CENTER
+                textSize = 22f
+                isFakeBoldText = true
+            }
+            for (st in vm.stairs) {
+                val l = px(st.x)
+                val t = py(st.y)
+                val r = px(st.x + st.w)
+                val b = py(st.y + st.h)
+                c.drawRect(l, t, r, b, stFill)
+                c.drawRect(l, t, r, b, stEdge)
+                for (k in 0 until st.steps - 1) {
+                    val e = st.edge(k)
+                    c.drawLine(px(e.first.x), py(e.first.y), px(e.second.x), py(e.second.y), stStep)
+                }
+                // краевой кусок: полоса у дальней стороны с её размером
+                val cut = StairsCalc.cutPlan(st)
+                if (cut.treadCuts > 0) {
+                    val pieceM = cut.treadCutMm / 1000.0
+                    when (st.dirDeg) {
+                        90, 270 -> c.drawRect(l, py(st.y + st.h - pieceM), r, b, stCut)
+                        else -> c.drawRect(px(st.x + st.w - pieceM), t, r, b, stCut)
+                    }
+                    c.drawText(
+                        cut.treadCutMm.toInt().toString(),
+                        when (st.dirDeg) {
+                            90, 270 -> (l + r) / 2f
+                            else -> px(st.x + st.w - pieceM / 2)
+                        },
+                        when (st.dirDeg) {
+                            90, 270 -> py(st.y + st.h - pieceM / 2) + 8f
+                            else -> (t + b) / 2f + 8f
+                        },
+                        stTxt,
+                    )
+                }
+                // стрелка подъёма от нижней ступени к верхней
+                val base = st.edge(-1)
+                val top = st.edge(st.steps - 1)
+                val fx = (px(base.first.x) + px(base.second.x)) / 2f
+                val fy = (py(base.first.y) + py(base.second.y)) / 2f
+                val tx = (px(top.first.x) + px(top.second.x)) / 2f
+                val ty = (py(top.first.y) + py(top.second.y)) / 2f
+                val vx = tx - fx
+                val vy = ty - fy
+                val vlen = sqrt(vx * vx + vy * vy)
+                if (vlen > 10f) {
+                    val ux = vx / vlen
+                    val uy = vy / vlen
+                    c.drawLine(fx, fy, tx, ty, stEdge)
+                    val ah = 14f
+                    c.drawLine(tx, ty, tx - ux * ah - uy * ah * 0.6f, ty - uy * ah + ux * ah * 0.6f, stEdge)
+                    c.drawLine(tx, ty, tx - ux * ah + uy * ah * 0.6f, ty - uy * ah - ux * ah * 0.6f, stEdge)
+                }
+                val word = if (st.toLevel >= 0) {
+                    s(R.string.stairs_up) + " " + (st.toLevel + 1)
+                } else {
+                    s(R.string.stairs_porch)
+                }
+                c.drawText(word, (l + r) / 2f, t - 10f, stTxt)
+            }
+        }
+
         // 3) размеры сторон — внутрь комнаты, чтобы не мешать табличкам
         val dimTxt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Good.toArgb()
@@ -239,9 +324,12 @@ object PlanShare {
         val dimBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.argb(215, 15, 22, 34)
         }
+        val arcRuns = vm.arcRuns
         for (i in pts.indices) {
             val a = pts[i]
             val b = pts[(i + 1) % pts.size]
+            // сегменты дуги не подписываем поштучно — у дуги будет своя метка
+            if (Arcs.edgeInArc(arcRuns, i, pts.size) != null) continue
             val ex = b.x - a.x
             val ey = b.y - a.y
             val len = sqrt(ex * ex + ey * ey)
@@ -259,6 +347,26 @@ object PlanShare {
             val tw = dimTxt.measureText(label)
             c.drawRoundRect(
                 RectF(tx - tw / 2 - 9f, ty - 16f, tx + tw / 2 + 9f, ty + 16f),
+                9f, 9f, dimBg,
+            )
+            c.drawText(label, tx, ty + 8f, dimTxt)
+        }
+
+        // 3s) дуги: радиус и длина по дуге одной меткой на всю дугу
+        val cxAll = pts.sumOf { it.x } / pts.size
+        val cyAll = pts.sumOf { it.y } / pts.size
+        for (run in arcRuns) {
+            val mid = pts[(run.startEdge + run.edges / 2) % pts.size]
+            val vx = mid.x - cxAll
+            val vy = mid.y - cyAll
+            val vl = sqrt(vx * vx + vy * vy).coerceAtLeast(1e-6)
+            val tx = px(mid.x) + (vx / vl).toFloat() * 40f
+            val ty = py(mid.y) + (vy / vl).toFloat() * 40f
+            val label = "R " + String.format(Locale.getDefault(), "%.2f", run.radiusM) + " · " +
+                String.format(Locale.getDefault(), "%.2f", run.lengthM) + " " + s(R.string.unit_m)
+            val tw = dimTxt.measureText(label)
+            c.drawRoundRect(
+                RectF(tx - tw / 2 - 9f, ty - 16f, tx + tw / 2 + 16f, ty + 16f),
                 9f, 9f, dimBg,
             )
             c.drawText(label, tx, ty + 8f, dimTxt)

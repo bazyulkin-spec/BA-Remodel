@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.baremodel.app.R
 import com.baremodel.app.data.UiPrefs
 import com.baremodel.app.report.PdfReport
+import com.baremodel.app.ui.theme.Dim
 import com.baremodel.app.ui.theme.Acc
 import com.baremodel.app.ui.theme.AccDeep
 import com.baremodel.app.ui.theme.BaIcons
@@ -52,6 +53,7 @@ import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Txt
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.StairsCalc
 import com.baremodel.core.polygonPerimeter
 import java.text.DateFormat
 import java.util.Date
@@ -68,6 +70,32 @@ fun ReportTab(vm: EditorViewModel) {
     val label = patternLabel(vm.pattern.type, vm.pattern.rotationDeg)
     val name = vm.projectName.ifBlank { stringResource(R.string.default_name) }
     val m2 = stringResource(R.string.unit_m2)
+    val stairUpLbl = stringResource(R.string.stairs_up)
+    val stairPorchLbl = stringResource(R.string.stairs_porch)
+    val mmLbl = stringResource(R.string.unit_mm)
+    val cutlistLbl = stringResource(R.string.stairs_cutlist)
+    val wholeLbl = stringResource(R.string.stairs_whole)
+    val edgeLbl = stringResource(R.string.stairs_edge)
+    val riserLbl = stringResource(R.string.stairs_riser_pcs)
+    val stairCutLines = vm.stairs.mapIndexedNotNull { i, st ->
+        val c = StairsCalc.cutPlan(st)
+        // марш без плитки (дерево/бетон/отметка) раскроя не имеет — строку не пишем
+        if (c.totalTiles == 0) return@mapIndexedNotNull null
+        val parts = ArrayList<String>()
+        if (c.wholeTreadTiles > 0) parts.add(wholeLbl + " " + c.wholeTreadTiles)
+        if (c.treadCuts > 0) {
+            parts.add(edgeLbl + " " + c.treadCuts + "×" + c.treadCutMm.toInt() + " " + mmLbl)
+        }
+        if (c.riserStrips > 0) parts.add(riserLbl + " " + c.riserStrips + " / " + c.riserTiles)
+        cutlistLbl + " " + (i + 1) + ": " + parts.joinToString(" · ")
+    }
+    val stairRows = vm.stairsPlans.mapIndexed { i, pair ->
+        val st = pair.first
+        val pl = pair.second
+        val where = if (st.toLevel >= 0) stairUpLbl + " " + (st.toLevel + 1) else stairPorchLbl
+        (stringResource(R.string.stairs_n, i + 1) + " · " + where) to
+            (st.steps.toString() + " × " + st.treadMm.toInt() + "/" + st.riserMm.toInt() + " " + mmLbl)
+    }
     val cur = vm.prices.currency
     val costs = vm.surfaceCosts()
     val estMat = costs.sumOf { it.materials }
@@ -175,11 +203,19 @@ fun ReportTab(vm: EditorViewModel) {
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(
+            stringResource(R.string.share_title),
+            color = Dim,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(7.dp))
+        // две НЕЗАВИСИМЫЕ отправки: только картинка-план — чип; только PDF — кнопка ниже
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip(stringResource(R.string.share_plan)) { PlanShare.share(context, vm) }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
 
         // Действие — сразу под главным числом
         Box(
@@ -203,6 +239,8 @@ fun ReportTab(vm: EditorViewModel) {
                         patternLabel = label,
                         watermark = Entitlements.watermark,
                         logo = if (Entitlements.brandedPdf) vm.masterLogo?.asAndroidBitmap() else null,
+                        stairsRows = stairRows,
+                        stairsCuts = stairCutLines,
                         estimate = estRows,
                         estimateTotal = estTotal,
                         apartment = aptRows,
@@ -234,6 +272,57 @@ fun ReportTab(vm: EditorViewModel) {
             }
         }
         Spacer(Modifier.height(10.dp))
+
+        // Этажи: строка на этаж — площадь и штуки материала
+        val lvRows = if (vm.levelList.size > 1) vm.levelSummaries() else emptyList()
+        if (lvRows.isNotEmpty()) {
+            Card {
+                Text(
+                    stringResource(R.string.levels_title),
+                    color = Acc2,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                lvRows.forEach { st ->
+                    Row2(
+                        vm.levelTitle(st.index) + " · " +
+                            String.format(Locale.getDefault(), "%.2f", st.areaM2) + " " + m2,
+                        st.count.toString() + " " + pcsLabel,
+                    )
+                }
+                Row2(
+                    stringResource(R.string.grand_total),
+                    String.format(Locale.getDefault(), "%.2f", lvRows.sumOf { it.areaM2 }) + " " + m2 +
+                        " · " + lvRows.sumOf { it.count } + " " + pcsLabel,
+                    Acc2,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        // Ступени и крыльцо: марш, куда ведёт и сколько на него материала
+        if (stairRows.isNotEmpty()) {
+            Card {
+                Text(
+                    stringResource(R.string.stairs_title),
+                    color = Acc2,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                stairRows.forEach { (label2, value) -> Row2(label2, value) }
+                Row2(
+                    stringResource(R.string.buy),
+                    vm.stairsPlans.sumOf { it.second.buyPieces }.toString() + " " + pcsLabel +
+                        "  ·  " + String.format(
+                            Locale.getDefault(), "%.2f", vm.stairsPlans.sumOf { it.second.areaM2 },
+                        ) + " " + m2,
+                    Acc2,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
 
         // Вся квартира: строка на комнату — видно, где сколько
         if (aptRows.isNotEmpty()) {
