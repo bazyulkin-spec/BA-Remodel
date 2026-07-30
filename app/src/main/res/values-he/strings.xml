@@ -491,4 +491,12 @@
     <string name="fav_hint">הקשה — החלה · לחיצה ארוכה — מחיקה. מחקת הכול — הקטלוג חוזר.</string>
     <string name="ruler_across">בשורה: %1$d שלמים + %2$d מ״מ</string>
     <string name="ruler_rows">שורות: %1$d + %2$d מ״מ</string>
+    <string name="proj_export">לקובץ</string>
+    <string name="proj_import">מקובץ</string>
+    <string name="proj_share">שלח פרויקט</string>
+    <string name="proj_exported">הפרויקט נשמר לקובץ.</string>
+    <string name="proj_export_fail">לא הצלחנו לכתוב את הקובץ.</string>
+    <string name="proj_imported">הפרויקט נפתח ונוסף לרשימה.</string>
+    <string name="proj_import_fail">זה לא קובץ פרויקט של BA-Remodel.</string>
+    <string name="proj_exchange_hint">פרויקט הוא קובץ אחד: שמור בדרייב, שלח בצ׳אט — מי שיש לו את האפליקציה יפתח דרך «מקובץ».</string>
 </resources>

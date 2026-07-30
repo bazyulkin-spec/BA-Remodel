@@ -2464,6 +2464,30 @@ private fun ProjectSection(vm: EditorViewModel) {
     )
     Spacer(Modifier.height(8.dp))
     IconChip(BaIcons.Save, stringResource(R.string.save), selected = true) { vm.saveProject() }
+    Spacer(Modifier.height(8.dp))
+    // проект — это один файл: его можно сохранить куда угодно, отправить кому угодно
+    // и открыть на любом телефоне с этой программой
+    run {
+        val ctx = LocalContext.current
+        val exportLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json"),
+        ) { uri -> if (uri != null) vm.exportProject(ctx, uri) }
+        val importLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri -> if (uri != null) vm.importProject(ctx, uri) }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(stringResource(R.string.proj_export)) { exportLauncher.launch(vm.exportFileName()) }
+            Chip(stringResource(R.string.proj_import)) {
+                importLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+            }
+            Chip(stringResource(R.string.proj_share)) { vm.shareProject(ctx) }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(stringResource(R.string.proj_exchange_hint), color = Sub, fontSize = 10.5.sp, lineHeight = 14.sp)
+    }
     Spacer(Modifier.height(10.dp))
     vm.projects.forEach { p ->
         Row(

@@ -491,4 +491,12 @@
     <string name="fav_hint">Тап — применить · долгое нажатие — удалить. Удалишь все — каталог вернётся.</string>
     <string name="ruler_across">В ряд: %1$d целых + %2$d мм</string>
     <string name="ruler_rows">Рядов: %1$d + %2$d мм</string>
+    <string name="proj_export">В файл</string>
+    <string name="proj_import">Из файла</string>
+    <string name="proj_share">Отправить проект</string>
+    <string name="proj_exported">Проект сохранён в файл.</string>
+    <string name="proj_export_fail">Не получилось записать файл.</string>
+    <string name="proj_imported">Проект открыт и добавлен в список.</string>
+    <string name="proj_import_fail">Это не файл проекта BA-Remodel.</string>
+    <string name="proj_exchange_hint">Проект — это один файл: храни его в Диске, кидай в чат — у кого есть программа, откроет через «Из файла».</string>
 </resources>

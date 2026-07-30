@@ -491,4 +491,12 @@
     <string name="fav_hint">Tap to apply · long press to delete. Delete all — the catalog comes back.</string>
     <string name="ruler_across">Per row: %1$d whole + %2$d mm</string>
     <string name="ruler_rows">Rows: %1$d + %2$d mm</string>
+    <string name="proj_export">To file</string>
+    <string name="proj_import">From file</string>
+    <string name="proj_share">Send project</string>
+    <string name="proj_exported">Project saved to file.</string>
+    <string name="proj_export_fail">Could not write the file.</string>
+    <string name="proj_imported">Project opened and added to the list.</string>
+    <string name="proj_import_fail">This file is not a BA-Remodel project.</string>
+    <string name="proj_exchange_hint">A project is one file: keep it in Drive, send it in a chat — anyone with this app opens it via "From file".</string>
 </resources>

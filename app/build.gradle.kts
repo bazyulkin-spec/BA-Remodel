@@ -36,6 +36,14 @@ android {
             }
         }
         getByName("debug") {
+            // ПОСТОЯННЫЙ отладочный ключ из репозитория: без него CI подписывал бы
+            // каждую сборку случайным ключом, и обновление требовало бы удалить
+            // старую версию — вместе со всеми проектами пользователя.
+            // Это ключ только для бета-раздачи; в Play идёт release-ключ из секрета.
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
             // v1 нужна старым эмуляторам и сторонним установщикам, v2/v3 — современным Android
             enableV1Signing = true
             enableV2Signing = true

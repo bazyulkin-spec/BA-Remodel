@@ -4274,6 +4274,72 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // ---------- обмен проектами: файл наружу, файл внутрь ----------
+
+    /** Записать текущий проект в выбранный пользователем файл (SAF). */
+    fun exportProject(context: Context, uri: Uri) {
+        val ok = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(repo.encode(currentDto()).toByteArray(Charsets.UTF_8))
+            } != null
+        }.getOrDefault(false)
+        toast(if (ok) R.string.proj_exported else R.string.proj_export_fail)
+    }
+
+    /**
+     * Открыть проект из файла: битый или чужой формат — короткий отказ без падения.
+     * Совпадение имени не затирает существующий проект — добавляется суффикс.
+     */
+    fun importProject(context: Context, uri: Uri) {
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        }.getOrNull()
+        val dto = text?.let { repo.decode(it) }
+        if (dto == null) {
+            toast(R.string.proj_import_fail)
+            return
+        }
+        var name = dto.name.ifBlank { "Import" }
+        val taken = repo.list().map { it.name }.toSet()
+        var n = 2
+        while (name in taken) {
+            name = dto.name + " ($n)"
+            n++
+        }
+        val saved = dto.copy(name = name, savedAt = System.currentTimeMillis())
+        repo.save(saved)
+        applyDto(saved)
+        projectName = name
+        refreshProjects()
+        toast(R.string.proj_imported)
+    }
+
+    /** Отправить проект файлом: мессенджер или почта — получатель откроет «Из файла». */
+    fun shareProject(context: Context) {
+        runCatching {
+            val dir = java.io.File(context.cacheDir, "reports").apply { mkdirs() }
+            val safe = projectName.trim().replace(Regex("[^\\w\\u0400-\\u04FF -]"), "_")
+                .ifBlank { "project" }.take(60)
+            val f = java.io.File(dir, "$safe.baremodel.json")
+            f.writeText(repo.encode(currentDto()))
+            val u = androidx.core.content.FileProvider.getUriForFile(
+                context, context.packageName + ".fileprovider", f,
+            )
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(android.content.Intent.EXTRA_STREAM, u)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(
+                android.content.Intent.createChooser(send, context.getString(R.string.proj_share)),
+            )
+        }.onFailure { toast(R.string.proj_export_fail) }
+    }
+
+    /** Имя файла для экспорта: «Кухня.baremodel.json». */
+    fun exportFileName(): String =
+        projectName.trim().ifBlank { "project" }.take(60) + ".baremodel.json"
+
     fun saveProject() {
         val dto = currentDto()
         viewModelScope.launch {

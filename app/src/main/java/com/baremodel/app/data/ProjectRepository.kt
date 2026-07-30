@@ -29,6 +29,13 @@ class ProjectRepository(context: Context) {
             .sortedByDescending { it.savedAt }
     }.getOrDefault(emptyList())
 
+    /** JSON проекта для экспорта в файл или отправки другому мастеру. */
+    fun encode(dto: ProjectDto): String = json.encodeToString(ProjectDto.serializer(), dto)
+
+    /** Разбор присланного файла; null — файл битый или не наш. */
+    fun decode(text: String): ProjectDto? =
+        runCatching { json.decodeFromString(ProjectDto.serializer(), text) }.getOrNull()
+
     fun save(dto: ProjectDto) {
         runCatching { fileFor(dto.name).writeText(json.encodeToString(ProjectDto.serializer(), dto)) }
     }
