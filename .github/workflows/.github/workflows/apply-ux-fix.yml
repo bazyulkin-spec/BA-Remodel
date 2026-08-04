@@ -1,0 +1,282 @@
+name: Apply UX Fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply changes
+        run: |
+          python3 << 'PYEOF'
+          import io, os
+
+          def read(p):
+              with io.open(p, 'r', encoding='utf-8') as f:
+                  return f.read()
+
+          def write(p, s):
+              with io.open(p, 'w', encoding='utf-8') as f:
+                  f.write(s)
+
+          changed = []
+
+          MS = 'app/src/main/java/com/baremodel/app/ui/editor/MainScreen.kt'
+          EV = 'app/src/main/java/com/baremodel/app/ui/editor/EditorViewModel.kt'
+          OB = 'app/src/main/java/com/baremodel/app/ui/editor/OnboardingScreen.kt'
+
+          # ---------- 1. MainScreen: шторка + онбординг ----------
+          s = read(MS)
+
+          if '560.dp' not in s:
+              old = '        val panelMax by animateDpAsState(if (sheetState >= 2) 330.dp else 172.dp, label = "sheetH")'
+              new = '''        val panelMax by animateDpAsState(
+                      when (sheetState) {
+                          0 -> 0.dp
+                          1 -> 240.dp
+                          else -> 560.dp
+                      },
+                      label = "sheetH",
+                      animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+                  )'''
+              if old in s:
+                  s = s.replace(old, new)
+                  changed.append('sheet')
+              else:
+                  print('WARN: sheet anchor not found')
+
+          for imp in ['import androidx.compose.animation.core.FastOutSlowInEasing',
+                      'import androidx.compose.animation.core.tween']:
+              if imp not in s:
+                  s = s.replace('import androidx.compose.animation.core.animateIntAsState',
+                                'import androidx.compose.animation.core.animateIntAsState\n' + imp)
+
+          if 'showOnboarding' not in s:
+              if 'import android.content.Context' not in s:
+                  s = s.replace('import androidx.compose.animation.AnimatedVisibility',
+                                'import android.content.Context\nimport androidx.compose.animation.AnimatedVisibility')
+              if 'import androidx.compose.ui.platform.LocalContext' not in s:
+                  s = s.replace('import androidx.compose.ui.platform.LocalHapticFeedback',
+                                'import androidx.compose.ui.platform.LocalContext\nimport androidx.compose.ui.platform.LocalHapticFeedback')
+              old_sig = '''fun MainScreen(vm: EditorViewModel = viewModel()) {
+              var tab by rememberSaveable { mutableStateOf(0) }'''
+              new_sig = '''fun MainScreen(vm: EditorViewModel = viewModel()) {
+              val context = LocalContext.current
+              val prefs = remember { context.getSharedPreferences("ba_onb", Context.MODE_PRIVATE) }
+              var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_done", false)) }
+              if (showOnboarding) {
+                  OnboardingScreen {
+                      prefs.edit().putBoolean("onboarding_done", true).apply()
+                      showOnboarding = false
+                  }
+                  return
+              }
+              var tab by rememberSaveable { mutableStateOf(0) }'''
+              if old_sig in s:
+                  s = s.replace(old_sig, new_sig)
+                  changed.append('onboarding-gate')
+              else:
+                  print('WARN: MainScreen signature anchor not found')
+
+          write(MS, s)
+
+          # ---------- 2. EditorViewModel: убрать автодиалог ----------
+          s = read(EV)
+          marker = '// голый тап по стене'
+          if marker in s:
+              i = s.index(marker)
+              ls = s.rfind('\n', 0, i) + 1
+              j = s.index('{', i)
+              depth = 0
+              k = j
+              while k < len(s):
+                  c = s[k]
+                  if c == '{':
+                      depth += 1
+                  elif c == '}':
+                      depth -= 1
+                      if depth == 0:
+                          break
+                  k += 1
+              eol = s.index('\n', k)
+              s = s[:ls] + s[eol + 1:]
+              write(EV, s)
+              changed.append('auto-dialog-removed')
+          else:
+              print('INFO: auto-dialog already removed')
+
+          # ---------- 3. OnboardingScreen.kt ----------
+          if not os.path.exists(OB):
+              write(OB, '''package com.baremodel.app.ui.editor
+
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.ButtonDefaults
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import com.baremodel.app.R
+          import com.baremodel.app.ui.theme.Acc
+          import com.baremodel.app.ui.theme.Bg
+          import com.baremodel.app.ui.theme.Good
+          import com.baremodel.app.ui.theme.LineC
+          import com.baremodel.app.ui.theme.Panel2
+          import com.baremodel.app.ui.theme.Sub
+          import com.baremodel.app.ui.theme.Txt
+
+          @Composable
+          fun OnboardingScreen(onComplete: () -> Unit) {
+              var step by remember { mutableStateOf(0) }
+              val icons = listOf("🏠", "🧱", "📊")
+              val titles = listOf(
+                  stringResource(R.string.ob1_title),
+                  stringResource(R.string.ob2_title),
+                  stringResource(R.string.ob3_title),
+              )
+              val texts = listOf(
+                  stringResource(R.string.ob1_text),
+                  stringResource(R.string.ob2_text),
+                  stringResource(R.string.ob3_text),
+              )
+              Column(
+                  Modifier.fillMaxSize().background(Bg).padding(28.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.Center,
+              ) {
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      repeat(3) { i ->
+                          Box(
+                              Modifier
+                                  .size(if (i == step) 12.dp else 8.dp)
+                                  .clip(RoundedCornerShape(50))
+                                  .background(if (i <= step) Acc else LineC)
+                          )
+                      }
+                  }
+                  Text(
+                      icons[step],
+                      fontSize = 64.sp,
+                      modifier = Modifier.padding(top = 40.dp, bottom = 20.dp),
+                  )
+                  Text(
+                      titles[step],
+                      color = Txt,
+                      fontSize = 24.sp,
+                      fontWeight = FontWeight.Bold,
+                      textAlign = TextAlign.Center,
+                  )
+                  Text(
+                      texts[step],
+                      color = Sub,
+                      fontSize = 15.sp,
+                      lineHeight = 22.sp,
+                      textAlign = TextAlign.Center,
+                      modifier = Modifier.padding(top = 14.dp, bottom = 44.dp),
+                  )
+                  Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                      if (step > 0) {
+                          Button(
+                              onClick = { step-- },
+                              colors = ButtonDefaults.buttonColors(containerColor = Panel2),
+                          ) { Text(stringResource(R.string.ob_back), color = Txt) }
+                      }
+                      Button(
+                          onClick = { if (step < 2) step++ else onComplete() },
+                          colors = ButtonDefaults.buttonColors(
+                              containerColor = if (step == 2) Good else Acc,
+                          ),
+                      ) {
+                          Text(
+                              if (step == 2) stringResource(R.string.ob_start) else stringResource(R.string.ob_next),
+                              color = Color.White,
+                          )
+                      }
+                  }
+              }
+          }
+          ''')
+              changed.append('onboarding-screen')
+
+          # ---------- 4. Строки во все локали ----------
+          EN = '''    <string name="ob1_title">Draw the room</string>
+              <string name="ob1_text">Tap the dots on the walls to change the shape. Use the opening presets to add a door or window.</string>
+              <string name="ob2_title">Pick your tile</string>
+              <string name="ob2_text">Choose tile size and layout pattern in the settings sheet - the app counts pieces instantly.</string>
+              <string name="ob3_title">Get the estimate</string>
+              <string name="ob3_text">The Report tab shows tiles, cuts and cost. Share a branded PDF with your client.</string>
+              <string name="ob_back">Back</string>
+              <string name="ob_next">Next</string>
+              <string name="ob_start">Start!</string>
+          '''
+          RU = '''    <string name="ob1_title">Нарисуй комнату</string>
+              <string name="ob1_text">Тапай по точкам на стенах, чтобы менять форму. Пресеты проёмов добавят дверь или окно.</string>
+              <string name="ob2_title">Выбери плитку</string>
+              <string name="ob2_text">В шторке настроек выбери размер плитки и узор - приложение сразу посчитает количество.</string>
+              <string name="ob3_title">Получи смету</string>
+              <string name="ob3_text">Во вкладке Отчёт - плитка, подрезка и стоимость. Отправь клиенту красивый PDF.</string>
+              <string name="ob_back">Назад</string>
+              <string name="ob_next">Далее</string>
+              <string name="ob_start">Начать!</string>
+          '''
+          HE = '''    <string name="ob1_title">צייר את החדר</string>
+              <string name="ob1_text">הקש על הנקודות בקירות כדי לשנות צורה. הגדרות פתחים יוסיפו דלת או חלון.</string>
+              <string name="ob2_title">בחר אריח</string>
+              <string name="ob2_text">בחר גודל אריח ודפוס פריסה בחלונית ההגדרות - האפליקציה סופרת מיד.</string>
+              <string name="ob3_title">קבל אומדן</string>
+              <string name="ob3_text">בכרטיסיית הדוח - אריחים, חיתוכים ועלות. שתף PDF ממותג עם הלקוח.</string>
+              <string name="ob_back">חזרה</string>
+              <string name="ob_next">הבא</string>
+              <string name="ob_start">קדימה!</string>
+          '''
+          for p, block in [
+              ('app/src/main/res/values/strings.xml', EN),
+              ('app/src/main/res/values-ru/strings.xml', RU),
+              ('app/src/main/res/values-iw/strings.xml', HE),
+              ('app/src/main/res/values-he/strings.xml', HE),
+          ]:
+              s = read(p)
+              if 'ob1_title' not in s:
+                  s = s.replace('</resources>', block + '</resources>')
+                  write(p, s)
+                  changed.append(p)
+
+          print('CHANGED:', changed)
+          PYEOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "ux-fix-bot"
+          git config user.email "ux-fix-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+          else
+            git commit -m "UX: bigger sheet, no auto opening dialog, onboarding"
+            git push
+          fi
