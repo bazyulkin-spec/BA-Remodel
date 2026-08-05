@@ -1046,16 +1046,26 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
      * Дуга правится заново кнопками — целиком, а не по точке.
      */
     fun vertexOnArc(i: Int): Boolean {
-        val runs = arcRuns
+        val runs = arcLockRuns
         if (runs.isEmpty()) return false
         val n = room.points.size
         return Arcs.edgeInArc(runs, i % n, n) != null ||
             Arcs.edgeInArc(runs, (i - 1 + n) % n, n) != null
     }
 
-    /** Ребро внутри дуги? На таких не рисуем «+» — точку туда вставлять незачем. */
+    /**
+     * Замок берёт только НАСТОЯЩИЕ дуги — от шести сегментов подряд (круг, овал,
+     * большой сгиб). Три-четыре точки, которые мастер сам поставил на стене и
+     * подровнял, под замок не попадают: эвристика принимала их за дугу и мешала
+     * растягивать стену по точкам — ровно та помеха, на которую жаловались.
+     */
+    private val arcLockRuns: List<ArcRun> by derivedStateOf {
+        Arcs.detectArcs(room.points, minEdges = 6)
+    }
+
+    /** Ребро внутри настоящей дуги? На таких не рисуем «+» — точку туда вставлять незачем. */
     fun edgeOnArc(i: Int): Boolean =
-        Arcs.edgeInArc(arcRuns, i, room.points.size) != null
+        Arcs.edgeInArc(arcLockRuns, i, room.points.size) != null
 
     /** Прямоугольная комната по типовому размеру: быстрый старт без черчения. */
     fun applyRoomPreset(wM: Double, hM: Double) =
@@ -2889,38 +2899,53 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 if (drag == Drag.OPENING_MOVE) return
             }
         }
-        // голый тап по стене в режиме «Комната» — мастер спрашивает «что здесь?»
-        if (roomMode && openingWizard == null && !drawMode) {
+        // Тяга за стену: схватил ребро В ЛЮБОМ месте — точка появляется под пальцем
+        // и стена тянется. Раньше тянулась только середина с «+», а промах по нему
+        // открывал диалог «что здесь? дверь?» — диалог убран, механика та же, что
+        // у «+»: вставка вершины и обычный VERTEX-драг; отмена снимает точку.
+        if (roomMode && openingWizard == null && !drawMode && placeOpeningKind < 0) {
             val ptsR = room.points
             val nearVertex = ptsR.any { (toScreen(it) - pos).getDistance() < 26f * uiScale }
             if (!nearVertex) {
                 var bestI = -1
-                var bestS = 0.0
+                var bestT = 0.0
                 var bestD = 14.0 * uiScale / view.scale
                 for (i in ptsR.indices) {
+                    if (edgeOnArc(i)) continue // настоящая дуга остаётся цельной
                     val a = ptsR[i]
                     val b = ptsR[(i + 1) % ptsR.size]
                     val ex = b.x - a.x
                     val ey = b.y - a.y
-                    val len = sqrt(ex * ex + ey * ey)
-                    if (len < 1e-6) continue
-                    val t = (((w.x - a.x) * ex + (w.y - a.y) * ey) / (len * len)).coerceIn(0.0, 1.0)
+                    val len2 = ex * ex + ey * ey
+                    if (len2 < 1e-12) continue
+                    val t = (((w.x - a.x) * ex + (w.y - a.y) * ey) / len2).coerceIn(0.0, 1.0)
                     val qx = a.x + ex * t
                     val qy = a.y + ey * t
                     val dist = sqrt((w.x - qx) * (w.x - qx) + (w.y - qy) * (w.y - qy))
                     if (dist < bestD) {
                         bestD = dist
                         bestI = i
-                        bestS = len * t
+                        bestT = t
                     }
                 }
                 if (bestI >= 0) {
-                    openingWizard = OpeningWizard(bestI, bestS, -1)
-                    drag = Drag.NONE
+                    val a = ptsR[bestI]
+                    val b = ptsR[(bestI + 1) % ptsR.size]
+                    val np = Pt(
+                        round2(a.x + (b.x - a.x) * bestT),
+                        round2(a.y + (b.y - a.y) * bestT),
+                    )
+                    val list = ptsR.toMutableList()
+                    list.add(bestI + 1, np)
+                    room = room.copy(points = list)
+                    drag = Drag.VERTEX
+                    dragIndex = bestI + 1
+                    selection = Selection.Vertex(bestI + 1)
                     return
                 }
             }
         }
+
         // касание по ДРУГОЙ комнате: сразу делаем её активной и тащим — одним жестом,
         // и ручки активной комнаты при этом не перехватывают касание (иначе ставилась точка)
         pendingSwitch = -1

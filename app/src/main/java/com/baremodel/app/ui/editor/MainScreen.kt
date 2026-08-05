@@ -3,7 +3,9 @@ package com.baremodel.app.ui.editor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.fadeIn
@@ -228,7 +230,18 @@ private fun EditorTab(vm: EditorViewModel) {
 
         // 0 — скрыта · 1 — половина (видно план и настройки) · 2 — полностью
         var sheetState by rememberSaveable { mutableStateOf(1) }
-        val panelMax by animateDpAsState(if (sheetState >= 2) 330.dp else 172.dp, label = "sheetH")
+        // шторка: 240 в рабочем положении, 560 развёрнутая — на телефоне панель
+        // больше не заставляет скроллить каждую секцию по чуть-чуть; ручка и
+        // заголовок живут ВНЕ этого ограничения, поэтому свайп доступен всегда
+        val panelMax by animateDpAsState(
+            when (sheetState) {
+                0 -> 0.dp
+                1 -> 240.dp
+                else -> 560.dp
+            },
+            label = "sheetH",
+            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+        )
         Column(
             Modifier
                 .fillMaxWidth()
