@@ -4835,6 +4835,95 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Чистый лист для нового объекта; расценки и логотип мастера остаются. */
+    // ---------- умный сброс: вернуть к базовому по частям ----------
+
+    /**
+     * Узор к базовому: без поворота, без смещения, привязка заново по центру.
+     * Плитка, цвет и геометрия не трогаются — «раскладка поехала, верни как было».
+     */
+    fun resetPattern() {
+        pushUndo()
+        pattern = PatternSpec(pattern.type)
+        anchor = AnchorMode.CENTER
+        suggestions = null
+        reanchor()
+    }
+
+    /** Отделка к базовому: плитка, цвет, декор, зоны, панно. Стены остаются. */
+    fun resetFinish() {
+        pushUndo()
+        tile = TileSpec(600.0, 600.0, 3.0)
+        wallTile = TileSpec(300.0, 600.0, 2.0)
+        pattern = PatternSpec()
+        tileColor = Color(0xFFC7CCD6)
+        tileImage = null
+        decorImage = null
+        variation = true
+        decor = DecorSpec()
+        decorOverrides = emptyMap()
+        zones = emptyList()
+        tileColors = emptyMap()
+        material = MaterialSpec()
+        panelOn = false
+        activeZone = -1
+        finishes = mapOf("floor" to Finish.TILE, "ceiling" to Finish.PAINT)
+        selection = null
+        suggestions = null
+        reanchor()
+    }
+
+    /**
+     * Стены к базовому: контур выпрямляется в прямоугольник по своим же габаритам.
+     * Площадь и пропорции комнаты сохраняются, кривизна и лишние изломы уходят.
+     */
+    fun resetWalls() {
+        val pts = room.points
+        if (pts.size < 3) return
+        pushUndo()
+        val minx = pts.minOf { it.x }
+        val maxx = pts.maxOf { it.x }
+        val miny = pts.minOf { it.y }
+        val maxy = pts.maxOf { it.y }
+        room = RoomSpec(
+            listOf(Pt(minx, miny), Pt(maxx, miny), Pt(maxx, maxy), Pt(minx, maxy)),
+            room.cutouts,
+        )
+        // проёмы висели на номерах прежних стен — их пришлось бы гадать
+        openings = emptyMap()
+        openingKinds = emptyMap()
+        wallThickness = emptyMap()
+        selection = null
+        edgeEditIndex = -1
+        reanchor()
+        fit()
+    }
+
+    /** Точки к базовому: лишние вершины на прямых убираются, углы остаются. */
+    fun resetPoints() {
+        pushUndo()
+        simplifyRoom()
+    }
+
+    fun clearOpenings() {
+        pushUndo()
+        openings = emptyMap()
+        openingKinds = emptyMap()
+        openingWizard = null
+        placeOpeningKind = -1
+    }
+
+    fun clearFurniture() {
+        pushUndo()
+        furniture = emptyList()
+        selection = null
+    }
+
+    fun clearStairs() {
+        pushUndo()
+        stairs = emptyList()
+        selection = null
+    }
+
     fun newProject() {
         pushUndo()
         projectName = ""

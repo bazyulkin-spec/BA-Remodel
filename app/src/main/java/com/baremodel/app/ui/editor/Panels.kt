@@ -1320,6 +1320,73 @@ private fun RoomSection(vm: EditorViewModel) {
     }
     ArcsFold(vm)
     StairsFold(vm)
+    ResetFold(vm)
+}
+
+/**
+ * Умный сброс: вернуть к базовому по частям, а не всё разом. Любой сброс —
+ * обычный шаг, его снимает отмена, поэтому нажать не страшно. «Всё к базовому»
+ * просит подтверждение вторым тапом: диалога нет, но случайно не сработает.
+ */
+@Composable
+private fun ResetFold(vm: EditorViewModel) {
+    var confirmAll by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    Fold(vm, "room.reset", stringResource(R.string.reset_title), stringResource(R.string.reset_sub)) {
+        Text(stringResource(R.string.reset_hint), color = Sub, fontSize = 10.5.sp, lineHeight = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(stringResource(R.string.reset_pattern)) { vm.resetPattern() }
+            Chip(stringResource(R.string.reset_finish)) { vm.resetFinish() }
+            Chip(stringResource(R.string.rst_placed)) { vm.resetPlacements() }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(stringResource(R.string.reset_points)) { vm.resetPoints() }
+            Chip(stringResource(R.string.reset_walls)) { vm.resetWalls() }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (vm.openings.isNotEmpty()) {
+                Chip(stringResource(R.string.reset_openings)) { vm.clearOpenings() }
+            }
+            if (vm.furniture.isNotEmpty()) {
+                Chip(stringResource(R.string.reset_furniture)) { vm.clearFurniture() }
+            }
+            if (vm.stairs.isNotEmpty()) {
+                Chip(stringResource(R.string.reset_stairs)) { vm.clearStairs() }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Chip(
+                stringResource(if (confirmAll) R.string.rst_all_confirm else R.string.rst_all),
+                confirmAll,
+            ) {
+                if (confirmAll) {
+                    vm.newProject()
+                    confirmAll = false
+                } else {
+                    confirmAll = true
+                }
+            }
+            if (confirmAll) {
+                Chip(stringResource(R.string.cancel)) { confirmAll = false }
+            }
+        }
+    }
 }
 
 /** Дуги и круглые комнаты: контур гнётся, движок работает с частой ломаной. */

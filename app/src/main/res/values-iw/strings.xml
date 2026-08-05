@@ -543,4 +543,17 @@
     <string name="hist_saved">שמר</string>
     <string name="hist_export">ייצא לקובץ</string>
     <string name="hist_import">התקבל מ-%1$s</string>
+    <string name="reset_title">איפוס</string>
+    <string name="reset_sub">חזרה לבסיס — לפי חלקים</string>
+    <string name="reset_hint">כל איפוס הוא צעד רגיל: ביטול מחזיר הכול. שום דבר לא נעלם לתמיד.</string>
+    <string name="reset_pattern">תבנית</string>
+    <string name="reset_finish">גימור</string>
+    <string name="reset_points">נקודות מיותרות</string>
+    <string name="reset_walls">יישור קירות</string>
+    <string name="reset_openings">פתחים</string>
+    <string name="reset_furniture">ריהוט</string>
+    <string name="reset_stairs">מדרגות</string>
+    <string name="rst_placed">צבוע ומוצב</string>
+    <string name="rst_all">פרויקט חדש</string>
+    <string name="rst_all_confirm">הקש שוב — מתחילים מחדש</string>
 </resources>
