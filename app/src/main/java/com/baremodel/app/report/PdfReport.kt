@@ -58,6 +58,7 @@ object PdfReport {
         extra: List<ExtraLayer> = emptyList(),
         colorOf: ((com.baremodel.core.PlacedTile) -> Int?)? = null,
         cutNumbers: Boolean = false,
+        opts: com.baremodel.app.data.ReportOptions = com.baremodel.app.data.ReportOptions(),
     ) {
         val doc = PdfDocument()
         val page = doc.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -140,7 +141,7 @@ object PdfReport {
         }
 
         // план раскладки — в правой колонке, где страница пустует
-        run {
+        if (opts.plan) {
             val fb = renderFloorBitmap(
                 points = room.points,
                 tiles = layout.tiles,
@@ -194,6 +195,7 @@ object PdfReport {
         c.drawLine(40f, y, 555f, y, rule)
 
         // параметры
+        if (opts.params) {
         y += 26f
         c.drawText(s(R.string.params), 40f, y, h2)
         y += 18f
@@ -214,8 +216,10 @@ object PdfReport {
             y += 15f
             c.drawText(s(R.string.add_cutout) + ": " + room.cutouts.size, 40f, y, body)
         }
+        }
 
         // материалы
+        if (opts.results) {
         y += 30f
         c.drawText(s(R.string.results), 40f, y, h2)
         y += 18f
@@ -231,7 +235,7 @@ object PdfReport {
             s(R.string.buy) + ": " + buyCount + " " + s(R.string.pcs) + " ≈ " + n2(buyM2) + " " + s(R.string.unit_m2),
             40f, y, bodyBold,
         )
-        if (stairsRows.isNotEmpty()) {
+        if (opts.stairs && stairsRows.isNotEmpty()) {
             y += 19f
             c.drawText(s(R.string.stairs_title), 40f, y, bodyBold)
             for (row in stairsRows) {
@@ -251,9 +255,10 @@ object PdfReport {
             if (pairSaved > 0) parts.add(s(R.string.pair_saving) + " −" + pairSaved)
             c.drawText(parts.joinToString(" · "), 40f, y, body)
         }
+        }
 
         // сводка по квартире: строка на комнату
-        if (apartment.size > 1) {
+        if (opts.apartment && apartment.size > 1) {
             val bodyR2 = Paint(body).apply { textAlign = Paint.Align.RIGHT }
             val bodyBoldR2 = Paint(bodyBold).apply { textAlign = Paint.Align.RIGHT }
             y += 30f
@@ -272,6 +277,7 @@ object PdfReport {
         }
 
         // карта подрезки
+        if (opts.cutMap) {
         y += 30f
         c.drawText(s(R.string.cut_map), 40f, y, h2)
         y += 18f
@@ -296,9 +302,10 @@ object PdfReport {
             }
             y = rowY
         }
+        }
 
         // смета
-        if (estimate.isNotEmpty() || estimateTotal != null) {
+        if (opts.estimate && (estimate.isNotEmpty() || estimateTotal != null)) {
             val bodyR = Paint(body).apply { textAlign = Paint.Align.RIGHT }
             val bodyBoldR = Paint(bodyBold).apply { textAlign = Paint.Align.RIGHT }
             y += 28f

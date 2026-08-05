@@ -33,7 +33,15 @@ import com.baremodel.app.data.Prices
 import com.baremodel.app.data.RoomDto
 import com.baremodel.app.data.ZoneDto
 import java.io.File
+import com.baremodel.app.data.DesignVariant
+import com.baremodel.app.data.HistoryEntry
+import com.baremodel.app.data.ReportOptions
+import com.baremodel.app.data.ReportPreset
+import com.baremodel.app.data.presetOptions
+import com.baremodel.app.data.reportOptionsOf
+import com.baremodel.app.data.toMask
 import com.baremodel.app.data.ProjectDto
+import com.baremodel.app.data.UiPrefs
 import com.baremodel.app.data.ProjectMeta
 import com.baremodel.app.data.ProjectRepository
 import com.baremodel.core.ArcRun
@@ -79,6 +87,9 @@ import com.baremodel.core.SkirtingCalc
 import com.baremodel.core.TileClass
 import com.baremodel.core.TileSpec
 import com.baremodel.core.TilingEngine
+import com.baremodel.core.WallCalc
+import com.baremodel.core.WallPlan
+import com.baremodel.core.WallSpec
 import com.baremodel.core.clipPolygonByRect
 import com.baremodel.core.isPlank
 import com.baremodel.core.pointInPolygon
@@ -274,6 +285,230 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var outdoor by mutableStateOf(false)
         private set
 
+    /** Плашка чисел свёрнута в одну строку — на телефоне освобождает пол-экрана. */
+    var statsCollapsed by mutableStateOf(false)
+        private set
+
+    fun toggleStatsCollapsed() { statsCollapsed = !statsCollapsed }
+
+    /** Показывать подложку-чертёж: быстрый выключатель в верхней панели. */
+    var showPlanImage by mutableStateOf(true)
+        private set
+
+    fun togglePlanImage() { showPlanImage = !showPlanImage }
+
+    /** Плитка стен: своя, независимая от пола. */
+    var wallTile by mutableStateOf(TileSpec(300.0, 600.0, 2.0))
+        private set
+
+    /** Целая плитка от пола (иначе целая под потолком). */
+    var wallStartFloor by mutableStateOf(true)
+        private set
+
+    /** Симметрия по длине: равные куски в углах вместо целой от угла. */
+    var wallCentered by mutableStateOf(true)
+        private set
+
+    fun setWallTileWidth(mm: Double) { wallTile = wallTile.copy(widthMm = mm.coerceIn(30.0, 3000.0)) }
+
+    fun setWallTileHeight(mm: Double) { wallTile = wallTile.copy(heightMm = mm.coerceIn(30.0, 3000.0)) }
+
+    fun setWallGrout(mm: Double) { wallTile = wallTile.copy(groutMm = mm.coerceIn(0.0, 30.0)) }
+
+    fun toggleWallStartFloor() { wallStartFloor = !wallStartFloor }
+
+    fun toggleWallCentered() { wallCentered = !wallCentered }
+
+    /** Длина стены i, метры. */
+    fun wallLengthOf(i: Int): Double {
+        val pts = room.points
+        if (i !in pts.indices) return 0.0
+        val a = pts[i]
+        val b = pts[(i + 1) % pts.size]
+        return sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
+    }
+
+    /** Развёртка стены i: настоящая раскладка с подрезкой, а не площадь ÷ площадь. */
+    fun wallPlanOf(i: Int): WallPlan = WallCalc.plan(
+        WallSpec(
+            lengthM = wallLengthOf(i),
+            heightM = wallHeightM,
+            openings = openingsOf("wall-" + (i + 1)),
+            tile = wallTile,
+            startFromFloor = wallStartFloor,
+            centered = wallCentered,
+        ),
+    )
+
+    /** Все стены комнаты, которые кладут плиткой: индекс и план. */
+    val tiledWallPlans: List<Pair<Int, WallPlan>> by derivedStateOf {
+        room.points.indices.mapNotNull { i ->
+            if ((finishes["wall-" + (i + 1)] ?: Finish.NONE) != Finish.TILE) {
+                null
+            } else {
+                i to wallPlanOf(i)
+            }
+        }
+    }
+
+    // ---------- варианты дизайна: «А или Б» на одной квартире ----------
+
+    /** Варианты отделки этой комнаты. Геометрия, мебель и проёмы общие. */
+    var variants by mutableStateOf<List<DesignVariant>>(emptyList())
+        private set
+
+    /** Какой вариант сейчас показан; −1 — работа без вариантов. */
+    var activeVariant by mutableStateOf(-1)
+        private set
+
+    /** Снимок текущей отделки — всё, что отличает вариант Б от варианта А. */
+    private fun currentDesign(name: String) = DesignVariant(
+        name = name,
+        tile = tile,
+        pattern = pattern,
+        colorArgb = tileColor.toArgb(),
+        variation = variation,
+        decor = decor,
+        zones = zones,
+        tileColors = tileColors,
+        material = material,
+        finishes = finishes,
+        wallTile = wallTile,
+        wallStartFloor = wallStartFloor,
+        wallCentered = wallCentered,
+        panelOn = panelOn,
+        panelRX = panelRX,
+        panelRY = panelRY,
+    )
+
+    /** Запомнить нынешнюю отделку новым вариантом: А, Б, В… */
+    fun addVariant() {
+        pushUndo()
+        val letters = listOf("А", "Б", "В", "Г", "Д", "Е")
+        val name = letters.getOrNull(variants.size) ?: (variants.size + 1).toString()
+        variants = variants + currentDesign(name)
+        activeVariant = variants.lastIndex
+    }
+
+    /** Показать вариант: меняется только отделка, стены и мебель на месте. */
+    fun applyVariant(i: Int) {
+        val v = variants.getOrNull(i) ?: return
+        pushUndo()
+        tile = v.tile
+        pattern = v.pattern
+        tileColor = if (v.colorArgb == -1) tileColor else Color(v.colorArgb)
+        variation = v.variation
+        decor = v.decor
+        zones = v.zones
+        tileColors = v.tileColors
+        material = v.material
+        finishes = v.finishes
+        wallTile = v.wallTile
+        wallStartFloor = v.wallStartFloor
+        wallCentered = v.wallCentered
+        panelOn = v.panelOn
+        panelRX = v.panelRX
+        panelRY = v.panelRY
+        activeVariant = i
+        activeZone = -1
+        selection = null
+        suggestions = null
+        reanchor()
+    }
+
+    /** Перезаписать выбранный вариант тем, что на экране сейчас. */
+    fun updateVariant() {
+        val i = activeVariant
+        if (i !in variants.indices) return
+        pushUndo()
+        val list = variants.toMutableList()
+        list[i] = currentDesign(list[i].name)
+        variants = list
+    }
+
+    fun deleteVariant(i: Int) {
+        if (i !in variants.indices) return
+        pushUndo()
+        val list = variants.toMutableList()
+        list.removeAt(i)
+        variants = list
+        activeVariant = when {
+            list.isEmpty() -> -1
+            activeVariant >= list.size -> list.lastIndex
+            else -> activeVariant
+        }
+    }
+
+    /** Раскладка варианта для миниатюры сравнения. */
+    fun variantLayout(v: DesignVariant): LayoutResult {
+        val holes = room.cutouts + v.zones.map { Cutout(it.x, it.y, it.w, it.h) } +
+            stairs.filter { it.cutsFloor }.map { Cutout(it.x, it.y, it.w, it.h) }
+        return TilingEngine.build(room.copy(cutouts = holes), v.tile, v.pattern)
+    }
+
+    /**
+     * Показ клиенту: план смотрят, а не правят. Двигать и приближать можно,
+     * менять геометрию и отделку — нет. Это защита от случайной правки, а не
+     * замок: выключается тем же чипом, поэтому клиент не окажется в тупике.
+     */
+    var viewOnly by mutableStateOf(false)
+        private set
+
+    /** Журнал проекта: кто что сделал. Едет внутри файла вместе с проектом. */
+    var history by mutableStateOf<List<HistoryEntry>>(emptyList())
+        private set
+
+    /** Сколько работ отмечено и сколько всего — прогресс одной парой чисел. */
+    val workDone: Pair<Int, Int>
+        get() {
+            val rows = worksList()
+            val done = rows.count { (workStatus[it.key] ?: 0) >= 2 }
+            return done to rows.size
+        }
+
+    /** Дописать строку в журнал: держим последние 40, файл не должен пухнуть. */
+    private fun note(what: String) {
+        val (done, total) = workDone
+        val who = UiPrefs.userName.ifBlank { getApplication<Application>().getString(R.string.author_unknown) }
+        history = (history + HistoryEntry(who, what, System.currentTimeMillis(), done, total)).takeLast(40)
+    }
+
+    /** Какие блоки печатать в отчёте — под ситуацию: клиенту, мастеру, в магазин. */
+    var report by mutableStateOf(
+        if (UiPrefs.reportMask >= 0) reportOptionsOf(UiPrefs.reportMask) else ReportOptions(),
+    )
+        private set
+
+    fun applyReportPreset(p: ReportPreset) {
+        report = presetOptions(p)
+        UiPrefs.saveReportMask(getApplication(), report.toMask())
+    }
+
+    /** Любой блок включается отдельно; выбор становится личным умолчанием. */
+    fun updateReport(f: (ReportOptions) -> ReportOptions) {
+        report = f(report)
+        UiPrefs.saveReportMask(getApplication(), report.toMask())
+    }
+
+    /** Пресет, которому сейчас точно соответствует набор блоков, или null. */
+    val reportPreset: ReportPreset?
+        get() = ReportPreset.entries.firstOrNull { presetOptions(it) == report }
+
+    fun toggleViewOnly() {
+        viewOnly = !viewOnly
+        if (viewOnly) {
+            selection = null
+            activeZone = -1
+            drawMode = false
+            paintMode = false
+            formatBrush = false
+            traceMode = false
+            calibMode = false
+            placeOpeningKind = -1
+            openingWizard = null
+        }
+    }
+
     var showFurniture by mutableStateOf(true)
         private set
 
@@ -345,6 +580,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         tileColors = tileColors,
         wallThickness = wallThickness,
         material = material,
+        wallTile = wallTile,
+        wallStartFloor = wallStartFloor,
+        wallCentered = wallCentered,
+        variants = variants,
+        activeVariant = activeVariant,
         stairs = stairs,
         outdoor = outdoor,
         spec = room,
@@ -368,6 +608,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         tileColors = d.tileColors
         wallThickness = d.wallThickness
         material = d.material
+        wallTile = d.wallTile
+        wallStartFloor = d.wallStartFloor
+        wallCentered = d.wallCentered
+        variants = d.variants
+        activeVariant = d.activeVariant
         stairs = d.stairs
         outdoor = d.outdoor
         activeZone = -1
@@ -436,6 +681,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteActiveRoom() {
+        if (viewOnly) return
         if (rooms.size <= 1) return
         pushUndo()
         val del = activeRoom
@@ -518,6 +764,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Удалить активный этаж; остаётся ближайший снизу. */
     fun deleteActiveLevel() {
+        if (viewOnly) return
         if (levelStore.isEmpty()) return
         pushUndo()
         val dead = activeLevel
@@ -1316,6 +1563,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteActiveZone() {
+        if (viewOnly) return
         if (activeZone !in zones.indices) return
         pushUndo()
         val list = zones.toMutableList()
@@ -2152,6 +2400,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Удалить выбранный проём — вместе с его типом. */
     fun deleteSelectedOpening() {
+        if (viewOnly) return
         val (wIdx, oi) = openingSel ?: return
         val id = "wall-" + (wIdx + 1)
         val list = openingsOf(id).toMutableList()
@@ -2503,9 +2752,26 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                     Finish.WALLPAPER ->
                         MaterialCalc.wallpaper(wallLen, wallHeightM).rolls.toString() +
                             " " + app.getString(R.string.rolls_short)
-                    else -> ceil(
-                        a / (t.widthMm * t.heightMm / 1e6) * (1 + reservePct / 100.0),
-                    ).toInt().toString() + " " + pcs
+                    else -> {
+                        // раскладка стены, а не «площадь ÷ площадь»: видно подрезку
+                        val wp = if (i == activeRoom) {
+                            wallPlanOf(w)
+                        } else {
+                            WallCalc.plan(
+                                WallSpec(
+                                    lengthM = wallLen,
+                                    heightM = wallHeightM,
+                                    openings = opens["wall-" + (w + 1)] ?: emptyList(),
+                                    tile = r.wallTile,
+                                    startFromFloor = r.wallStartFloor,
+                                    centered = r.wallCentered,
+                                ),
+                            )
+                        }
+                        wp.buyCount(reservePct).toString() + " " + pcs + " " +
+                            wp.tile.widthMm.toInt() + "×" + wp.tile.heightMm.toInt() +
+                            " · " + app.getString(R.string.wall_cut_n, wp.cutCount)
+                    }
                 }
                 out.add(
                     WorkRow(
@@ -2612,6 +2878,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val tileColors: Map<String, Int>,
         val wallThickness: Map<String, Double>,
         val material: MaterialSpec,
+        val wallTile: TileSpec,
+        val wallStartFloor: Boolean,
+        val wallCentered: Boolean,
+        val variants: List<DesignVariant>,
+        val activeVariant: Int,
         val stairs: List<StairsSpec>,
         val outdoor: Boolean,
         val activeLevel: Int,
@@ -2632,7 +2903,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         room, tile, pattern, tileColor, variation, reservePct,
         decor, anchor, furniture, finishes, openings, openingKinds, wallHeightM, wallThicknessM,
         rooms, activeRoom, decorOverrides, panelOn, panelRX, panelRY, zones, tileColors, wallThickness,
-        material, stairs, outdoor, activeLevel, levelStore, levelNames,
+        material, wallTile, wallStartFloor, wallCentered, variants, activeVariant,
+        stairs, outdoor, activeLevel, levelStore, levelNames,
     )
 
     /** Запомнить состояние перед изменением. */
@@ -2669,6 +2941,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         tileColors = s.tileColors
         wallThickness = s.wallThickness
         material = s.material
+        wallTile = s.wallTile
+        wallStartFloor = s.wallStartFloor
+        wallCentered = s.wallCentered
+        variants = s.variants
+        activeVariant = s.activeVariant
         stairs = s.stairs
         outdoor = s.outdoor
         activeLevel = s.activeLevel
@@ -2773,10 +3050,16 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun gestureDown(pos: Offset) {
+        UiPrefs.markTouched(getApplication())
         hintVisible = false
         drag = Drag.NONE
         dragIndex = -1
         editSnapPushed = false
+        // показ клиенту: палец только двигает и масштабирует план
+        if (viewOnly) {
+            drag = Drag.PAN
+            return
+        }
         val w = toWorld(pos)
         if (formatBrush && !roomMode) {
             brushHit = false
@@ -3775,6 +4058,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteSelectedVertex() {
+        if (viewOnly) return
         pushUndo()
         val sel = selection as? Selection.Vertex ?: return
         if (room.points.size <= 3) return
@@ -3788,6 +4072,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteSelectedCutout() {
+        if (viewOnly) return
         pushUndo()
         val sel = selection as? Selection.Cut ?: return
         val cs = room.cutouts.toMutableList()
@@ -3959,13 +4244,19 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- ступени и крыльцо ----------
 
     /** Новые ступени в центре комнаты; материал берётся у комнаты. */
-    fun addStairs() {
+    /** Крыльцо: ступени у входа, никуда не ведут — отдельной кнопкой, чтобы искать не пришлось. */
+    fun addPorch() = addStairs(porch = true)
+
+    fun addStairs(porch: Boolean = false) {
         pushUndo()
         val c = roomCenter()
+        // марш по умолчанию ведёт на этаж выше, крыльцо — никуда (toLevel = -1)
+        val up = levelList.firstOrNull { it > activeLevel } ?: (activeLevel + 1)
         stairs = stairs + StairsSpec(
             id = "st" + System.currentTimeMillis(),
             x = round2(c.x - 0.5),
             y = round2(c.y - 0.45),
+            toLevel = if (porch) -1 else up,
             tile = tile,
             material = material,
         )
@@ -3973,6 +4264,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteSelectedStairs() {
+        if (viewOnly) return
         val sel = selection as? Selection.Stair ?: return
         if (sel.i !in stairs.indices) return
         pushUndo()
@@ -4231,10 +4523,18 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Раскладка плитки для стены или потолка (с учётом проёмов). */
+    /**
+     * Раскладка поверхности. У СТЕНЫ — настоящая развёртка: своя плитка, своя фаза
+     * (целая от пола или под потолком, симметрия по длине) и проёмы как вырезы.
+     * Раньше стена считалась плиткой и фазой ПОЛА — числа были условными.
+     */
     fun surfaceLayout(id: String): LayoutResult {
+        val idx = id.removePrefix("wall-").toIntOrNull()?.minus(1)
+        if (id.startsWith("wall-") && idx != null && idx in room.points.indices) {
+            return wallPlanOf(idx).layout
+        }
         val s = model.surfaces.firstOrNull { it.id == id } ?: return TilingEngine.build(room, tile, pattern)
-        val spec = RoomSpec(s.outline, if (s.kind == SurfaceKind.WALL) openingsOf(id) else s.holes)
-        return TilingEngine.build(spec, tile, pattern)
+        return TilingEngine.build(RoomSpec(s.outline, s.holes), tile, pattern)
     }
 
     // ---------- советы ----------
@@ -4295,6 +4595,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             material = material,
             levels = levelsDto(),
             activeLevel = activeLevel,
+            viewOnly = viewOnly,
+            report = report,
+            author = UiPrefs.userName,
+            history = history,
             savedAt = System.currentTimeMillis(),
         )
     }
@@ -4303,6 +4607,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Записать текущий проект в выбранный пользователем файл (SAF). */
     fun exportProject(context: Context, uri: Uri) {
+        note(context.getString(R.string.hist_export))
         val ok = runCatching {
             context.contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(repo.encode(currentDto()).toByteArray(Charsets.UTF_8))
@@ -4331,9 +4636,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             name = dto.name + " ($n)"
             n++
         }
+        val from = dto.author.ifBlank { context.getString(R.string.author_unknown) }
         val saved = dto.copy(name = name, savedAt = System.currentTimeMillis())
         repo.save(saved)
         applyDto(saved)
+        note(context.getString(R.string.hist_import, from))
         projectName = name
         refreshProjects()
         toast(R.string.proj_imported)
@@ -4366,6 +4673,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         projectName.trim().ifBlank { "project" }.take(60) + ".baremodel.json"
 
     fun saveProject() {
+        note(getApplication<Application>().getString(R.string.hist_saved))
         val dto = currentDto()
         viewModelScope.launch {
             withContext(Dispatchers.IO) { repo.save(dto) }
@@ -4400,6 +4708,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         material = dto.material
         stairs = dto.stairs
         outdoor = dto.outdoor
+        viewOnly = dto.viewOnly
+        report = dto.report
+        history = dto.history
         if (dto.rooms.isNotEmpty()) {
             rooms = dto.rooms
             activeRoom = dto.activeRoom.coerceIn(0, dto.rooms.lastIndex)

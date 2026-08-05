@@ -24,7 +24,7 @@ class ProjectRepository(context: Context) {
             .mapNotNull { f ->
                 runCatching { json.decodeFromString(ProjectDto.serializer(), f.readText()) }
                     .getOrNull()
-                    ?.let { ProjectMeta(it.name, it.savedAt) }
+                    ?.let { ProjectMeta(it.name, it.savedAt, it.author) }
             }
             .sortedByDescending { it.savedAt }
     }.getOrDefault(emptyList())

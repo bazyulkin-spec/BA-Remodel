@@ -21,10 +21,34 @@ object UiPrefs {
     var lang by mutableStateOf("system")
         private set
 
+    /**
+     * Первое касание плана ещё не сделано. Пока это так, на плане висит одна
+     * короткая строка-подсказка. Гасится навсегда первым же жестом — программа
+     * не делится на «простой» и «профи», просто новичок получает первый шаг,
+     * а опытный убирает подсказку тем самым движением, которое и так сделал бы.
+     */
+    var firstTouch by mutableStateOf(true)
+        private set
+
+    /**
+     * Личный набор блоков отчёта: −1 «ещё не выбирал». Человек один раз собрал
+     * отчёт под себя — и новые проекты открываются уже с его набором, а не
+     * с чужого умолчания.
+     */
+    var reportMask by mutableStateOf(-1)
+        private set
+
+    /** Как подписывать свои правки в проектах: имя мастера или бригады. */
+    var userName by mutableStateOf("")
+        private set
+
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         scale = p.getFloat(KEY_SCALE, 1f)
         lang = p.getString(KEY_LANG, "system") ?: "system"
+        firstTouch = p.getBoolean(KEY_FIRST, true)
+        reportMask = p.getInt(KEY_REPORT, -1)
+        userName = p.getString(KEY_USER, "") ?: ""
     }
 
     fun updateScale(context: Context, v: Float) {
@@ -38,6 +62,27 @@ object UiPrefs {
         lang = v
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_LANG, v).apply()
+    }
+
+    /** Запомнить набор блоков отчёта как личное умолчание. */
+    fun saveReportMask(context: Context, mask: Int) {
+        reportMask = mask
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_REPORT, mask).apply()
+    }
+
+    fun updateUserName(context: Context, v: String) {
+        userName = v.take(40)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_USER, userName).apply()
+    }
+
+    /** Первый жест по плану сделан — подсказка больше не появится. */
+    fun markTouched(context: Context) {
+        if (!firstTouch) return
+        firstTouch = false
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FIRST, false).apply()
     }
 
     /** Локаль приложения: для дат и чисел в отчётах. */
@@ -62,4 +107,7 @@ object UiPrefs {
     private const val PREFS = "ba_ui"
     private const val KEY_SCALE = "scale"
     private const val KEY_LANG = "lang"
+    private const val KEY_FIRST = "first_touch"
+    private const val KEY_REPORT = "report_mask"
+    private const val KEY_USER = "user_name"
 }

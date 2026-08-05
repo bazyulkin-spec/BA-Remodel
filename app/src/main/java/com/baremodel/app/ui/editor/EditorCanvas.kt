@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.baremodel.app.R
+import com.baremodel.app.data.UiPrefs
 import com.baremodel.app.ui.theme.Acc
 import com.baremodel.app.ui.theme.Good
 import com.baremodel.app.ui.theme.Acc2
@@ -75,6 +76,8 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
     val wmText = stringResource(R.string.wm_brand)
     val rulerAcrossTpl = stringResource(R.string.ruler_across)
     val rulerRowsTpl = stringResource(R.string.ruler_rows)
+    val firstHintText = stringResource(R.string.first_hint)
+    val viewOnlyText = stringResource(R.string.view_only)
     val stairUpText = stringResource(R.string.stairs_up)
     val stairPorchText = stringResource(R.string.stairs_porch)
     val inactiveLayouts = remember(vm.rooms, vm.activeRoom) {
@@ -177,7 +180,7 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
         }
 
         // 2b. подложка: фото чертежа под всей работой
-        vm.planImage?.let { pi ->
+        vm.planImage?.takeIf { vm.showPlanImage }?.let { pi ->
             val pw = (pi.width * vm.planMPerPx * s).roundToInt().coerceAtLeast(1)
             val ph = (pi.height * vm.planMPerPx * s).roundToInt().coerceAtLeast(1)
             drawImage(
@@ -1384,6 +1387,38 @@ fun EditorCanvas(vm: EditorViewModel, modifier: Modifier = Modifier) {
             if (on) {
                 drawCircle(Color(0xFF0B1220), radius = 9f * d, center = br)
                 drawCircle(Acc2, radius = 5f * d, center = br)
+            }
+        }
+
+        // 7op. режим «+ Дверь/Окно»: стены подсвечены — видно, куда тапать
+        if (vm.placeOpeningKind >= 0 && pts.size >= 2) {
+            val dashOp = PathEffect.dashPathEffect(floatArrayOf(12f * d, 8f * d), 0f)
+            for (i in pts.indices) {
+                val a = sp(pts[i])
+                val b = sp(pts[(i + 1) % pts.size])
+                drawLine(Acc2.copy(alpha = 0.85f), a, b, strokeWidth = 5f * d, pathEffect = dashOp)
+            }
+        }
+
+        // 7vo. показ клиенту: метка, чтобы никто не искал, почему план не правится
+        if (vm.viewOnly) {
+            drawIntoCanvas { canvas ->
+                val vp = android.graphics.Paint(labelPaint)
+                vp.textSize = 11.5f * d
+                vp.color = android.graphics.Color.rgb(0x7A, 0xA7, 0xFF)
+                canvas.nativeCanvas.drawText(viewOnlyText, size.width / 2f, size.height - 12f * d, vp)
+            }
+        }
+
+        // 7fh. до самого первого касания — одна строка, что делать дальше.
+        // Не режим и не обучение: первый же жест гасит её навсегда.
+        if (UiPrefs.firstTouch) {
+            drawIntoCanvas { canvas ->
+                val hp = android.graphics.Paint(labelPaint)
+                hp.textSize = 12.5f * d
+                hp.color = android.graphics.Color.rgb(0xA6, 0xB2, 0xC6)
+                val cx = size.width / 2f
+                canvas.nativeCanvas.drawText(firstHintText, cx, 26f * d, hp)
             }
         }
 

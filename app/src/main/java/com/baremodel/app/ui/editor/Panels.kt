@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.baremodel.app.data.UiPrefs
 import com.baremodel.app.R
 import com.baremodel.app.ui.theme.Acc
 import com.baremodel.app.ui.theme.AccSoft
@@ -85,6 +87,9 @@ import com.baremodel.app.ui.theme.Panel2
 import com.baremodel.app.ui.theme.Sub
 import com.baremodel.app.ui.theme.Txt
 import com.baremodel.app.ui.theme.Warn
+import com.baremodel.core.WallPlan
+import com.baremodel.core.WallCalc
+import com.baremodel.core.TileClass
 import com.baremodel.core.Arcs
 import com.baremodel.core.AnchorMode
 import com.baremodel.core.ArtRect
@@ -170,6 +175,39 @@ private fun FavChip(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
+    }
+}
+
+/** Предпросмотр развёртки: стена с реальной раскладкой и проёмами — как на объекте. */
+@Composable
+private fun WallElevation(wp: WallPlan) {
+    if (wp.lengthM < 0.01 || wp.heightM < 0.01) return
+    val ratio = (wp.heightM / wp.lengthM).toFloat().coerceIn(0.15f, 1.6f)
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f / ratio)
+            .clip(RoundedCornerShape(9.dp))
+            .background(Panel2),
+    ) {
+        val k = (size.width / wp.lengthM).toFloat()
+        val h = size.height
+        fun px(x: Double) = (x * k).toFloat()
+        fun py(y: Double) = h - (y * k).toFloat()
+        wp.layout.tiles.forEach { t ->
+            val xs = t.corners.map { px(it.x) }
+            val ys = t.corners.map { py(it.y) }
+            val x0 = xs.min()
+            val y0 = ys.min()
+            val w = xs.max() - x0
+            val hh = ys.max() - y0
+            if (w <= 0.4f || hh <= 0.4f) return@forEach
+            drawRect(
+                if (t.cls == TileClass.FULL) Color(0xFF2B3A52) else Warn.copy(alpha = 0.5f),
+                topLeft = Offset(x0, y0),
+                size = Size(w, hh),
+            )
+        }
     }
 }
 
@@ -565,6 +603,7 @@ private val PALETTE = listOf(
 @Composable
 private fun TileSection(vm: EditorViewModel) {
     val context = LocalContext.current
+    VariantsRow(vm)
     MaterialRow(vm)
     Fold(
         vm, "tile.size", stringResource(R.string.fold_size),
@@ -629,7 +668,7 @@ private fun TileSection(vm: EditorViewModel) {
         ) { vm.setGrout(it) }
     }
     }
-    Fold(vm, "tile.color", stringResource(R.string.fold_color)) {
+    Fold(vm, "tile.color", stringResource(R.string.fold_color), stringResource(R.string.fold_color_sub)) {
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -725,7 +764,7 @@ private fun TileSection(vm: EditorViewModel) {
     }
 
     }
-    Fold(vm, "tile.look", stringResource(R.string.fold_look)) {
+    Fold(vm, "tile.look", stringResource(R.string.fold_look), stringResource(R.string.fold_look_sub)) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.loadTileImage(context, uri)
     }
@@ -796,8 +835,112 @@ private fun TileSection(vm: EditorViewModel) {
         }
     }
     }
-    Fold(vm, "tile.decor", stringResource(R.string.fold_decor)) {
+    Fold(vm, "tile.decor", stringResource(R.string.fold_decor), stringResource(R.string.fold_decor_sub)) {
         DecorSection(vm)
+    }
+}
+
+/**
+ * Варианты дизайна: «А или Б» на одной и той же квартире. Геометрия, мебель и
+ * проёмы общие — меняется только отделка, поэтому клиенту можно показать два-три
+ * решения, ничего не ломая.
+ */
+@Composable
+private fun VariantsRow(vm: EditorViewModel) {
+    Text(stringResource(R.string.variants), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(6.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        vm.variants.forEachIndexed { i, v ->
+            Chip(v.name, i == vm.activeVariant) { vm.applyVariant(i) }
+        }
+        Chip(stringResource(R.string.variant_add)) { vm.addVariant() }
+        if (vm.activeVariant in vm.variants.indices) {
+            Chip(stringResource(R.string.variant_update)) { vm.updateVariant() }
+            IconChip(BaIcons.Close, stringResource(R.string.variant_del), warn = true) {
+                vm.deleteVariant(vm.activeVariant)
+            }
+        }
+    }
+    if (vm.variants.size >= 2) {
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            vm.variants.forEachIndexed { i, v ->
+                Column(
+                    Modifier
+                        .width(112.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(
+                            1.dp,
+                            if (i == vm.activeVariant) Acc else LineC,
+                            RoundedCornerShape(10.dp),
+                        )
+                        .clickable { vm.applyVariant(i) }
+                        .padding(6.dp),
+                ) {
+                    VariantThumb(vm, i)
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        v.name + " · " + v.tile.widthMm.toInt() + "×" + v.tile.heightMm.toInt(),
+                        color = if (i == vm.activeVariant) Acc2 else Sub,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(stringResource(R.string.variant_hint), color = Sub, fontSize = 10.sp, lineHeight = 14.sp)
+    }
+    Spacer(Modifier.height(10.dp))
+}
+
+/** Миниатюра варианта: та же раскладка, только маленькая — видно разницу сразу. */
+@Composable
+private fun VariantThumb(vm: EditorViewModel, index: Int) {
+    val v = vm.variants.getOrNull(index) ?: return
+    val pts = vm.room.points
+    if (pts.size < 3) return
+    val minx = pts.minOf { it.x }
+    val maxx = pts.maxOf { it.x }
+    val miny = pts.minOf { it.y }
+    val maxy = pts.maxOf { it.y }
+    val w = (maxx - minx).coerceAtLeast(0.1)
+    val h = (maxy - miny).coerceAtLeast(0.1)
+    val lay = vm.variantLayout(v)
+    val base = if (v.colorArgb == -1) Color(0xFFC7CCD6) else Color(v.colorArgb)
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio((w / h).toFloat().coerceIn(0.5f, 2.0f))
+            .clip(RoundedCornerShape(7.dp))
+            .background(Panel2),
+    ) {
+        val k = minOf(size.width / w, size.height / h).toFloat()
+        val dx = (size.width - (w * k).toFloat()) / 2f
+        val dy = (size.height - (h * k).toFloat()) / 2f
+        fun px(x: Double) = dx + ((x - minx) * k).toFloat()
+        fun py(y: Double) = dy + ((y - miny) * k).toFloat()
+        lay.tiles.forEach { t ->
+            val xs = t.corners.map { px(it.x) }
+            val ys = t.corners.map { py(it.y) }
+            val x0 = xs.min()
+            val y0 = ys.min()
+            val tw = xs.max() - x0
+            val th = ys.max() - y0
+            if (tw <= 0.4f || th <= 0.4f) return@forEach
+            drawRect(
+                if (t.cls == TileClass.FULL) base.copy(alpha = 0.85f) else base.copy(alpha = 0.45f),
+                topLeft = Offset(x0, y0),
+                size = Size(tw, th),
+            )
+        }
     }
 }
 
@@ -1061,7 +1204,10 @@ private fun RoomSection(vm: EditorViewModel) {
     val planPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.loadPlanImage(context, uri)
     }
-    Fold(vm, "room.under", stringResource(R.string.plan_under)) {
+    Fold(
+        vm, "room.under", stringResource(R.string.plan_under),
+        stringResource(R.string.plan_under_sub),
+    ) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         IconChip(BaIcons.Camera, stringResource(R.string.plan_photo), vm.planImage != null) {
             planPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -1134,7 +1280,7 @@ private fun RoomSection(vm: EditorViewModel) {
             Chip(stringResource(R.string.simplify)) { vm.simplifyRoom() }
         }
     }
-    Fold(vm, "room.templates", stringResource(R.string.fold_templates)) {
+    Fold(vm, "room.templates", stringResource(R.string.fold_templates), stringResource(R.string.fold_templates_sub)) {
     var w by rememberSaveable { mutableStateOf(4.0) }
     var h by rememberSaveable { mutableStateOf(3.0) }
     Text(stringResource(R.string.rect), color = Sub, fontSize = 11.5.sp)
@@ -1253,8 +1399,12 @@ private fun StairsFold(vm: EditorViewModel) {
             vm.stairs.size.toString() + " · " + vm.stairsPlans.sumOf { it.second.piecesTotal } + " " + pcs
         },
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             Chip(stringResource(R.string.add_stairs)) { vm.addStairs() }
+            Chip(stringResource(R.string.add_porch)) { vm.addPorch() }
             Chip(stringResource(R.string.outdoor), vm.outdoor) { vm.toggleOutdoor() }
         }
         Spacer(Modifier.height(5.dp))
@@ -1706,7 +1856,7 @@ private fun SurfacesSection(vm: EditorViewModel) {
     val finish = vm.finishOf(active)
     val area = vm.surfaceAreaM2(active)
 
-    Fold(vm, "surf.finish", stringResource(R.string.fold_finish), default = true) {
+    Fold(vm, "surf.finish", stringResource(R.string.fold_finish), stringResource(R.string.fold_finish_sub), default = true) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf(
             Finish.TILE to R.string.finish_tile,
@@ -1723,7 +1873,68 @@ private fun SurfacesSection(vm: EditorViewModel) {
 
     when (finish) {
         Finish.TILE -> {
+            val wallIdx = active.removePrefix("wall-").toIntOrNull()?.minus(1)
+            val isWall = active.startsWith("wall-") && wallIdx != null
             val lay = vm.surfaceLayout(active)
+            val mm = stringResource(R.string.unit_mm)
+            if (isWall) {
+                // плитка стен своя: в ванной пол и стены почти всегда разные
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    stringResource(R.string.wall_tile_title),
+                    color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NumField(stringResource(R.string.width), vm.wallTile.widthMm, mm, 30.0, 3000.0) {
+                        vm.setWallTileWidth(it)
+                    }
+                    NumField(stringResource(R.string.length), vm.wallTile.heightMm, mm, 30.0, 3000.0) {
+                        vm.setWallTileHeight(it)
+                    }
+                    NumField(stringResource(R.string.grout), vm.wallTile.groutMm, mm, 0.0, 30.0) {
+                        vm.setWallGrout(it)
+                    }
+                }
+                Spacer(Modifier.height(7.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Chip(stringResource(R.string.wall_from_floor), vm.wallStartFloor) {
+                        if (!vm.wallStartFloor) vm.toggleWallStartFloor()
+                    }
+                    Chip(stringResource(R.string.wall_from_ceiling), !vm.wallStartFloor) {
+                        if (vm.wallStartFloor) vm.toggleWallStartFloor()
+                    }
+                    Chip(stringResource(R.string.wall_centered), vm.wallCentered) { vm.toggleWallCentered() }
+                }
+                val wp = vm.wallPlanOf(wallIdx)
+                Spacer(Modifier.height(9.dp))
+                WallElevation(wp)
+                Spacer(Modifier.height(9.dp))
+                Line(
+                    stringResource(R.string.wall_across),
+                    wp.across.cells.toString() + "  ·  " + stringResource(
+                        R.string.wall_edges,
+                        wp.across.firstMm.toInt(), wp.across.lastMm.toInt(),
+                    ),
+                )
+                Line(
+                    stringResource(R.string.wall_rows),
+                    wp.up.cells.toString() + "  ·  " + stringResource(
+                        R.string.wall_edges,
+                        wp.up.firstMm.toInt(), wp.up.lastMm.toInt(),
+                    ),
+                )
+                if (wp.thinnestMm in 0.5..WallCalc.THIN_MM) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.wall_thin_warn, wp.thinnestMm.toInt()),
+                        color = Warn, fontSize = 10.5.sp, lineHeight = 14.sp,
+                    )
+                }
+            }
             Line(stringResource(R.string.full_tiles), lay.fullCount.toString())
             Line(stringResource(R.string.cut_tiles), lay.cutCount.toString(), Warn)
             Line(
@@ -1733,7 +1944,10 @@ private fun SurfacesSection(vm: EditorViewModel) {
             )
             Line(
                 stringResource(R.string.adhesive),
-                String.format(Locale.getDefault(), "%.1f", MaterialCalc.tileAdhesiveKg(area, vm.tile)),
+                String.format(
+                    Locale.getDefault(), "%.1f",
+                    MaterialCalc.tileAdhesiveKg(area, if (isWall) vm.wallTile else vm.tile),
+                ),
             )
         }
 
@@ -2484,6 +2698,43 @@ private fun ProjectSection(vm: EditorViewModel) {
                 importLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
             }
             Chip(stringResource(R.string.proj_share)) { vm.shareProject(ctx) }
+            Chip(stringResource(R.string.view_only), vm.viewOnly) { vm.toggleViewOnly() }
+        }
+        if (vm.viewOnly) {
+            Spacer(Modifier.height(5.dp))
+            Text(stringResource(R.string.view_only_hint), color = Acc2, fontSize = 10.5.sp, lineHeight = 14.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        // кто правит: имя едет в файле, поэтому напарник видит, чьи это правки
+        OutlinedTextField(
+            value = UiPrefs.userName,
+            onValueChange = { UiPrefs.updateUserName(ctx, it) },
+            singleLine = true,
+            label = { Text(stringResource(R.string.your_name), color = Sub, fontSize = 11.sp) },
+            textStyle = TextStyle(fontSize = 13.sp, color = Txt),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Acc,
+                unfocusedBorderColor = LineC,
+                focusedTextColor = Txt,
+                unfocusedTextColor = Txt,
+                cursorColor = Acc,
+                focusedContainerColor = Panel2,
+                unfocusedContainerColor = Panel2,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (vm.history.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(stringResource(R.string.hist_title), color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(5.dp))
+            val df = remember { java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()) }
+            vm.history.takeLast(6).reversed().forEach { h ->
+                Line(
+                    h.who + " · " + h.what,
+                    df.format(java.util.Date(h.at)) +
+                        if (h.total > 0) "  ·  " + h.done + "/" + h.total else "",
+                )
+            }
         }
         Spacer(Modifier.height(5.dp))
         Text(stringResource(R.string.proj_exchange_hint), color = Sub, fontSize = 10.5.sp, lineHeight = 14.sp)

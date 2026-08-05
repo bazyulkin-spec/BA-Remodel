@@ -1,5 +1,6 @@
 package com.baremodel.app.ui.editor
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.baremodel.app.R
 import com.baremodel.app.data.UiPrefs
+import com.baremodel.app.data.ReportPreset
 import com.baremodel.app.report.PdfReport
 import com.baremodel.app.ui.theme.Dim
 import com.baremodel.app.ui.theme.Acc
@@ -217,6 +219,10 @@ fun ReportTab(vm: EditorViewModel) {
         }
         Spacer(Modifier.height(8.dp))
 
+        // отчёт собирается под ситуацию: клиенту, мастеру, в магазин или всё
+        ReportSetup(vm)
+        Spacer(Modifier.height(10.dp))
+
         // Действие — сразу под главным числом
         Box(
             Modifier
@@ -237,8 +243,9 @@ fun ReportTab(vm: EditorViewModel) {
                         pairSaved = if (vm.pairCuts) vm.cutPairs.saved else 0,
                         buyM2 = vm.buyM2,
                         patternLabel = label,
-                        watermark = Entitlements.watermark,
+                        watermark = Entitlements.watermark && vm.report.watermark,
                         logo = if (Entitlements.brandedPdf) vm.masterLogo?.asAndroidBitmap() else null,
+                        opts = vm.report,
                         stairsRows = stairRows,
                         stairsCuts = stairCutLines,
                         estimate = estRows,
@@ -253,7 +260,7 @@ fun ReportTab(vm: EditorViewModel) {
                         panel = vm.panelInfo(),
                         extra = vm.zoneLayers(),
                         colorOf = { t -> vm.colorOfTile(t) },
-                        cutNumbers = vm.showCuts,
+                        cutNumbers = vm.showCuts && vm.report.cutNumbers,
                         planBmp = PlanShare.renderBitmap(context, vm, withHeader = false),
                     )
                 }
@@ -500,6 +507,52 @@ private fun Card(content: @Composable androidx.compose.foundation.layout.ColumnS
         content = content,
     )
 }
+
+/**
+ * Сбор отчёта под ситуацию. Пресет расставляет блоки разом, дальше любой блок
+ * включается по одному — один и тот же проект даёт разные бумаги: клиенту
+ * картинку и деньги, мастеру подрезку, в магазин только количества.
+ */
+@Composable
+private fun ReportSetup(vm: EditorViewModel) {
+    Text(
+        stringResource(R.string.report_for),
+        color = Dim, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        REPORT_PRESETS.forEach { (p, res) ->
+            Chip(stringResource(res), vm.reportPreset == p) { vm.applyReportPreset(p) }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val r = vm.report
+        Chip(stringResource(R.string.rep_plan), r.plan) { vm.updateReport { it.copy(plan = !it.plan) } }
+        Chip(stringResource(R.string.rep_params), r.params) { vm.updateReport { it.copy(params = !it.params) } }
+        Chip(stringResource(R.string.rep_results), r.results) { vm.updateReport { it.copy(results = !it.results) } }
+        Chip(stringResource(R.string.rep_cuts), r.cutMap) { vm.updateReport { it.copy(cutMap = !it.cutMap) } }
+        Chip(stringResource(R.string.rep_numbers), r.cutNumbers) { vm.updateReport { it.copy(cutNumbers = !it.cutNumbers) } }
+        Chip(stringResource(R.string.rep_stairs), r.stairs) { vm.updateReport { it.copy(stairs = !it.stairs) } }
+        Chip(stringResource(R.string.rep_apartment), r.apartment) { vm.updateReport { it.copy(apartment = !it.apartment) } }
+        Chip(stringResource(R.string.rep_estimate), r.estimate) { vm.updateReport { it.copy(estimate = !it.estimate) } }
+    }
+    Spacer(Modifier.height(5.dp))
+    Text(stringResource(R.string.report_for_hint), color = Sub, fontSize = 10.sp, lineHeight = 14.sp)
+}
+
+private val REPORT_PRESETS = listOf(
+    ReportPreset.CLIENT to R.string.rep_client,
+    ReportPreset.MASTER to R.string.rep_master,
+    ReportPreset.SHOP to R.string.rep_shop,
+    ReportPreset.FULL to R.string.rep_full,
+)
 
 @Composable
 private fun Row2(label: String, value: String, valueColor: Color = Txt) {

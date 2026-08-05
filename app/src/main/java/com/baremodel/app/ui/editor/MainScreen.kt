@@ -176,6 +176,12 @@ private fun TopBar(vm: EditorViewModel, tab: Int) {
             IconToggle(BaIcons.Scissors, vm.showCuts) { vm.toggleCuts() }
             Spacer(Modifier.width(8.dp))
             IconToggle(BaIcons.Furn, vm.showFurniture) { vm.toggleFurniture() }
+            if (vm.planImage != null) {
+                Spacer(Modifier.width(8.dp))
+                IconToggle(BaIcons.Camera, vm.showPlanImage) { vm.togglePlanImage() }
+            }
+            Spacer(Modifier.width(8.dp))
+            IconToggle(BaIcons.Layers, !vm.statsCollapsed) { vm.toggleStatsCollapsed() }
         }
     }
 }
@@ -1296,6 +1302,36 @@ private fun StatsRow(vm: EditorViewModel) {
                 }
             }
         }
+    }
+    if (vm.statsCollapsed) {
+        // свёрнуто: одна строка вместо четырёх карточек — план получает пол-экрана
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 15.dp, end = 15.dp, top = 4.dp, bottom = 8.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { vm.toggleStatsCollapsed() }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                String.format(Locale.getDefault(), "%.2f", areaVal) + " " +
+                    stringResource(R.string.unit_m2),
+                color = Sub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                stringResource(R.string.buy) + " " + buy + " " + stringResource(R.string.pcs),
+                color = Acc2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            )
+            if (cut > 0) {
+                Text(
+                    stringResource(R.string.cut_tiles) + " " + cut,
+                    color = Warn, fontSize = 12.sp,
+                )
+            }
+        }
+        return
     }
     Row(
         Modifier
