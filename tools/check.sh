@@ -195,5 +195,30 @@ print("  enum ядра:", len(vals), "| неизвестных констант:
 sys.exit(1 if bad else 0)
 PY9
 
+echo "== 10. @Composable-функции, вызванные в своём файле, определены (ловит потерю при правке) =="
+python3 - <<'PY10' || fail=1
+import re, glob, sys
+bad = 0
+for f in sorted(glob.glob('app/src/main/java/**/*.kt', recursive=True)):
+    src = open(f, encoding='utf-8').read()
+    body = re.sub(r'//.*', '', src)
+    # что объявляет сам файл И соседние файлы того же пакета:
+    # в Kotlin им импорт не нужен, иначе получаем ложные тревоги
+    defined = set()
+    import os
+    for g in glob.glob(os.path.dirname(f) + '/*.kt'):
+        txt = re.sub(r'//.*', '', open(g, encoding='utf-8').read())
+        defined |= set(re.findall(r'fun\s+(?:[A-Za-z_][\w.<>]*\.)?([A-Za-z_]\w*)\s*\(', txt))
+    # что он импортирует поимённо
+    imported = set(re.findall(r'import\s+[\w.]*?\.(\w+)\s*$', src, re.M))
+    # вызовы вида Xxx( в начале строки — так в этом проекте пишут composable-секции
+    called = set(re.findall(r'^\s{4,}([A-Z][A-Za-z0-9]*)\(vm\)', body, re.M))
+    miss = sorted(c for c in called if c not in defined and c not in imported)
+    for m in miss:
+        print("  НЕ НАЙДЕНА " + m + "(vm) в " + f.split("/")[-1]); bad += 1
+print("  потерянных секций:", bad)
+sys.exit(1 if bad else 0)
+PY10
+
 [ $fail -eq 0 ] && echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" || echo "ЕСТЬ ЗАМЕЧАНИЯ"
 exit $fail
