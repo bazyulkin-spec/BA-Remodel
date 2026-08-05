@@ -172,5 +172,28 @@ print("  вариантов Selection:", len(subs), "| не покрыто:", ba
 sys.exit(1 if bad else 0)
 PY8
 
+echo "== 9. константы enum ядра существуют (ловит Unresolved reference) =="
+python3 - <<'PY9' || fail=1
+import re, glob, sys
+vals = {}
+for f in glob.glob('core/src/main/kotlin/com/baremodel/core/*.kt'):
+    for m in re.finditer(r'enum class (\w+)\s*\{([^}]*)\}', open(f, encoding='utf-8').read()):
+        name = m.group(1)
+        items = [x.strip().split('(')[0].strip() for x in m.group(2).split(',') if x.strip()]
+        vals[name] = set(i for i in items if re.fullmatch(r"[A-Z_0-9]+", i))
+bad = 0
+for f in glob.glob('app/src/main/java/**/*.kt', recursive=True):
+    src = open(f, encoding='utf-8').read()
+    for enum, allowed in vals.items():
+        if not allowed:
+            continue
+        for m in re.finditer(r'(?<![A-Za-z0-9_])' + enum + r'\.([A-Z_][A-Z_0-9]*)', src):
+            if m.group(1) not in allowed:
+                print("  НЕТ КОНСТАНТЫ " + enum + "." + m.group(1) + " в " + f.split("/")[-1])
+                bad += 1
+print("  enum ядра:", len(vals), "| неизвестных констант:", bad)
+sys.exit(1 if bad else 0)
+PY9
+
 [ $fail -eq 0 ] && echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" || echo "ЕСТЬ ЗАМЕЧАНИЯ"
 exit $fail

@@ -4844,7 +4844,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun resetPattern() {
         pushUndo()
         pattern = PatternSpec(pattern.type)
-        anchor = AnchorMode.CENTER
+        // ART_CENTER: центр раскладки в центре комнаты — так укладывают по умолчанию
+        anchor = AnchorMode.ART_CENTER
         suggestions = null
         reanchor()
     }
