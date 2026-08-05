@@ -40,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -338,6 +339,25 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                             text = { Text(stringResource(R.string.fit), color = Txt, fontSize = 13.sp) },
                             onClick = { menuOpen = false; vm.fit() },
                         )
+                        // сброс живёт здесь: меню видно из любой панели, поэтому
+                        // «вернуть как было» не надо искать и оно не выглядит
+                        // принадлежащим той панели, что открыта сейчас
+                        HorizontalDivider(color = LineC)
+                        Text(
+                            stringResource(R.string.reset_title),
+                            color = Dim,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reset_pattern), color = Txt, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; vm.resetPattern() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reset_finish), color = Txt, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; vm.resetFinish() },
+                        )
                         if (vm.room.points.size > 4) {
                             DropdownMenuItem(
                                 text = {
@@ -347,9 +367,36 @@ private fun BoxScope.EditorStage(vm: EditorViewModel) {
                             )
                         }
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reset_walls), color = Txt, fontSize = 13.sp) },
+                            onClick = { menuOpen = false; vm.resetWalls() },
+                        )
+                        if (vm.openings.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reset_openings), color = Txt, fontSize = 13.sp) },
+                                onClick = { menuOpen = false; vm.clearOpenings() },
+                            )
+                        }
+                        if (vm.furniture.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reset_furniture), color = Txt, fontSize = 13.sp) },
+                                onClick = { menuOpen = false; vm.clearFurniture() },
+                            )
+                        }
+                        if (vm.stairs.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reset_stairs), color = Txt, fontSize = 13.sp) },
+                                onClick = { menuOpen = false; vm.clearStairs() },
+                            )
+                        }
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.reset_all), color = Warn, fontSize = 13.sp) },
                             onClick = { menuOpen = false; askReset = true },
                         )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reset_undo_note), color = Sub, fontSize = 10.5.sp) },
+                            onClick = { menuOpen = false },
+                        )
+                        HorizontalDivider(color = LineC)
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.new_project), color = Txt, fontSize = 13.sp) },
                             onClick = { menuOpen = false; askNew = true },

@@ -544,16 +544,11 @@
     <string name="hist_export">exported to file</string>
     <string name="hist_import">received from %1$s</string>
     <string name="reset_title">Reset</string>
-    <string name="reset_sub">back to basics — by parts</string>
-    <string name="reset_hint">Each reset is an ordinary step: undo brings it back. Nothing is lost for good.</string>
     <string name="reset_pattern">Pattern</string>
     <string name="reset_finish">Finish</string>
-    <string name="reset_points">Extra points</string>
     <string name="reset_walls">Straighten walls</string>
     <string name="reset_openings">Openings</string>
     <string name="reset_furniture">Furniture</string>
     <string name="reset_stairs">Stairs</string>
-    <string name="rst_placed">Painted &amp; placed</string>
-    <string name="rst_all">New project</string>
-    <string name="rst_all_confirm">Tap again — start over</string>
+    <string name="reset_undo_note">any reset is undoable</string>
 </resources>
